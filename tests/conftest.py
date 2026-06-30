@@ -81,7 +81,7 @@ def sparse_sample_folder(tmp_path: Path) -> Path:
     Proves the fixed lattice (GRID-05): build_grid must still emit rows x cols
     cells with that single coordinate classified ``MISSING`` — never collapsed.
     """
-    outputs = tmp_path / "outputs"
+    outputs = tmp_path / "sparse"
     _write_dense(outputs)
     (outputs / HOLE_PROMPT / f"step_{HOLE_STEP}.png").unlink()
     return outputs
@@ -94,7 +94,7 @@ def corrupt_sample_folder(tmp_path: Path) -> Path:
     The corrupt file keeps a ``.png`` suffix (so the scanner discovers it) but
     contains non-image bytes, so Pillow ``verify()`` fails → ``BROKEN`` (D-10).
     """
-    outputs = tmp_path / "outputs"
+    outputs = tmp_path / "corrupt"
     _write_dense(outputs)
     corrupt = outputs / HOLE_PROMPT / f"step_{HOLE_STEP}.png"
     corrupt.write_bytes(b"\x89PNG not really an image at all")
@@ -108,7 +108,7 @@ def stray_ar_sample_folder(tmp_path: Path) -> Path:
     All cells are 32x18 (~16:9) except the stray, which is 18x32 (~9:16). The
     stray cell must flag ``ar_mismatch`` (D-11) while every other cell does not.
     """
-    outputs = tmp_path / "outputs"
+    outputs = tmp_path / "stray"
     _write_dense(outputs)
     # Overwrite the one coordinate with a portrait image (different AR).
     _write_png(

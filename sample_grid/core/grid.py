@@ -3,11 +3,9 @@
 ``build_grid`` derives the full axis domains up front, then pins a ``Cell`` for
 *every* (row, col) coordinate via the cartesian product — the lattice never
 collapses or shifts, even when samples are absent. A coordinate with no sample
-is ``MISSING``; otherwise ``POPULATED``.
-
-BROKEN classification (Pillow ``verify()``) and the per-cell ``ar_mismatch`` flag
-are deliberately deferred to Plan 02. AR *detection* (D-11) lands here so the
-renderer can size cells to the dominant aspect ratio.
+is ``MISSING``; a present-but-undecodable file is ``BROKEN`` (Pillow
+``verify()``, D-10); otherwise ``POPULATED`` with a per-cell ``ar_mismatch``
+flag set when its aspect ratio differs from the detected universal AR (D-11).
 """
 from __future__ import annotations
 
@@ -56,6 +54,23 @@ def detect_universal_ar(index: SampleIndex) -> "tuple[int, int]":
     return ars.most_common(1)[0][0] if ars else (1, 1)
 
 
+def is_decodable(path: Path) -> bool:
+    """True if Pillow can decode the file; False (no raise) if it can't (D-10).
+
+    Opens a *fresh* image inside the try and calls ``verify()`` — which validates
+    the file structure without loading full pixel data. Per Pillow's contract the
+    image object must not be reused after ``verify()``, so it is opened anew each
+    call and never returned. Any exception (missing file, truncated/corrupt bytes,
+    unidentified format) → ``False`` → the coordinate classifies as ``BROKEN``.
+    """
+    try:
+        with Image.open(path) as im:
+            im.verify()
+        return True
+    except Exception:
+        return False
+
+
 def build_grid(index: SampleIndex, config: GridConfig) -> GridModel:
     """Build a dense Steps x Prompts lattice from a SampleIndex (Pattern 2)."""
     by_coord = {(s.dims[config.rows], s.dims[config.cols]): s for s in index}
@@ -70,10 +85,20 @@ def build_grid(index: SampleIndex, config: GridConfig) -> GridModel:
         for col in col_values:
             sample = by_coord.get((row, col))
             if sample is None:
+                # Absent coordinate — never skipped (Pitfall 1). (D-09)
                 row_cells.append(Cell(CellState.MISSING))
+            elif not is_decodable(sample.path):
+                # File present but won't decode → BROKEN, sample retained. (D-10)
+                row_cells.append(Cell(CellState.BROKEN, sample=sample))
             else:
-                # BROKEN + ar_mismatch classification arrives in Plan 02.
-                row_cells.append(Cell(CellState.POPULATED, sample=sample))
+                # Populated; flag a stray aspect ratio for letterbox fallback. (D-11)
+                row_cells.append(
+                    Cell(
+                        CellState.POPULATED,
+                        sample=sample,
+                        ar_mismatch=_ar_of(sample.path) != cell_ar,
+                    )
+                )
         cells.append(row_cells)
 
     return GridModel(
