@@ -110,7 +110,7 @@ def test_prompt_html_escaped(xss_prompt_index) -> None:
 
     assert "&lt;b&gt;" in html  # <b> escaped
     assert "&amp;" in html      # & escaped
-    assert "&quot;" in html     # " escaped (attribute context)
+    assert "&#34;" in html      # " escaped (markupsafe emits &#34;, not &quot;)
     assert "<b>" not in html    # no raw injected element anywhere
 
 

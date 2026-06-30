@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment, FileSystemLoader
 
 from sample_grid.core.model import CellState, GridModel
 from sample_grid.render.resolver import AssetResolver
@@ -37,9 +37,14 @@ def render(
     cell_size_px: int = 240,
 ) -> str:
     """Render a GridModel to a self-contained HTML string (autoescape ON)."""
+    # autoescape=True UNCONDITIONALLY. select_autoescape() keys off the file
+    # extension and our template is `grid.html.j2` (ends in `.j2`, not `.html`),
+    # so the extension heuristic would leave escaping OFF — a stored-XSS hole for
+    # prompt text / filenames (T-1-01). This template only ever emits HTML, so
+    # force escaping on. Verified by tests/test_render.py::test_prompt_html_escaped.
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-        autoescape=select_autoescape(),
+        autoescape=True,
     )
     template = env.get_template("grid.html.j2")
 
@@ -66,4 +71,6 @@ def render(
         cell_ar_css=_aspect_ratio_css(grid.cell_ar),
         n_cols=len(grid.col_values),
         POPULATED=CellState.POPULATED,
+        MISSING=CellState.MISSING,
+        BROKEN=CellState.BROKEN,
     )

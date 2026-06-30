@@ -29,13 +29,26 @@
       <div class="row-header" role="rowheader">{{ row.step }}</div>
       {% for item in row.cells %}
         {% if item.cell.state == POPULATED %}
-      <a class="cell" href="{{ url(item.cell.sample) }}" target="_blank" rel="noopener noreferrer"
+      <a class="cell{% if item.cell.ar_mismatch %} cell--mismatch{% endif %}"
+         href="{{ url(item.cell.sample) }}" target="_blank" rel="noopener noreferrer"
          title="step {{ row.step }} · {{ item.prompt }}">
         <img src="{{ url(item.cell.sample) }}" alt="step {{ row.step }}, {{ item.prompt }}"
              loading="lazy" decoding="async">
       </a>
+        {% elif item.cell.state == BROKEN %}
+      {# Broken: file present but won't decode — amber, solid, ⚠ (D-10). Not clickable. #}
+      <div class="cell cell--broken"
+           title="File found but couldn't be displayed — {{ item.cell.sample.path.name }}">
+        <span class="cell__glyph" aria-hidden="true">⚠</span>
+        <span class="cell__caption">Can't render</span>
+      </div>
         {% else %}
-      <div class="cell cell--missing" title="No sample for step {{ row.step }} · {{ item.prompt }}">—</div>
+      {# Missing: nothing was ever here — cold, dashed, em dash (D-09). Not clickable. #}
+      <div class="cell cell--missing"
+           title="No sample for step {{ row.step }} · {{ item.prompt }}">
+        <span class="cell__glyph" aria-hidden="true">—</span>
+        <span class="cell__caption">s{{ row.step }}·{{ item.prompt }}</span>
+      </div>
         {% endif %}
       {% endfor %}
       {% endfor %}

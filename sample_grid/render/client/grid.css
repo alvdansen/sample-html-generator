@@ -10,8 +10,10 @@
   --text: #e6e8eb;
   --text-muted: #9aa0a6;
   --hairline: rgba(255, 255, 255, 0.06);
-  --missing-stroke: #3a3f45;
-  --missing-label: #5c636b;
+  --missing-stroke: #3a3f45;        /* cold dashed border of a missing cell  */
+  --missing-label: #5c636b;         /* faint em-dash + coordinate caption     */
+  --broken-accent: #e0a458;         /* warm amber border + ⚠ glyph (status)  */
+  --broken-fill: rgba(224, 164, 88, 0.07);  /* subtle amber wash behind broken */
 }
 
 :root,
@@ -107,13 +109,48 @@ body {
   display: block;
 }
 
-/* Missing placeholder — minimal here; the dashed/amber missing-vs-broken
-   distinction (D-09/D-10) is completed in Plan 02. */
+/* D-11 fallback: a stray-AR sample letterboxes (contain) instead of cropping,
+   so the comparison never silently mis-frames an off-ratio sample. */
+.cell--mismatch img {
+  object-fit: contain;
+}
+
+/* Missing vs broken must be UNMISTAKABLE (D-09/D-10): they differ on border
+   STYLE (dashed vs solid), COLOR (cold neutral vs warm amber), and GLYPH
+   (— vs ⚠) simultaneously. Neither is ever an empty/black media cell, and
+   neither is clickable. Both keep the SAME box so the lattice never shifts. */
+.cell--missing,
+.cell--broken {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px;
+  text-align: center;
+  cursor: default;
+}
+
 .cell--missing {
   border: 1px dashed var(--missing-stroke);
   color: var(--missing-label);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+}
+
+.cell--broken {
+  border: 1px solid var(--broken-accent);
+  background: var(--broken-fill);
+  color: var(--broken-accent);
+}
+
+.cell__glyph {
   font-size: 18px;
+  line-height: 1;
+}
+
+.cell__caption {
+  font-size: 11px;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
