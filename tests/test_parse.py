@@ -288,3 +288,32 @@ def test_sidecar_malformed_skipped(malformed_sidecar_folder: Path) -> None:
     assert all("step" not in f for f in out.values())
     # ...and it was recorded as skipped rather than silently swallowed.
     assert any("broken_1" in s for s in ext.skipped)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: sidecar is the highest-precedence source end-to-end (D-03 / META-03).
+# ---------------------------------------------------------------------------
+
+
+def test_precedence_sidecar_wins(tmp_path: Path) -> None:
+    """When filename says step=600 and a sidecar says step=500 for the SAME media
+    file, the merged dims use the sidecar value (D-03) and a conflict is counted."""
+    import json
+
+    from sample_grid.cli.main import _auto_parse
+
+    folder = tmp_path / "run"
+    (folder / "a_lake").mkdir(parents=True)
+    (folder / "a_lake" / "step_600.png").write_bytes(b"\x89PNG stub")
+    (folder / "a_lake" / "step_600.json").write_text(
+        json.dumps({"step": 500, "prompt": "a serene lake"}), encoding="utf-8"
+    )
+
+    index, report = _auto_parse(folder)
+
+    assert len(index) == 1
+    # Sidecar (precedence 3) overrides the filename token (precedence 2).
+    assert index[0].dims["step"] == 500
+    assert index[0].dims["prompt"] == "a serene lake"
+    # The disagreement on `step` is recorded in the report (D-04).
+    assert any(fieldname == "step" for fieldname, _ in report.conflicts)

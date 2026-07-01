@@ -17,6 +17,7 @@ from sample_grid.core.grid import build_grid
 from sample_grid.core.model import CellState, GridConfig
 from sample_grid.core.parse.base import AutoDetectParser
 from sample_grid.core.parse.filename import FilenameExtractor
+from sample_grid.core.parse.sidecar import SidecarExtractor
 from sample_grid.core.parse.subfolder import SubfolderExtractor
 from sample_grid.core.scan import Scanner
 from sample_grid.render.renderer import render
@@ -41,9 +42,20 @@ def _auto_parse(folder: Path):
     Returns ``(SampleIndex, DetectionReport)``. ``build`` discards the report
     (D-02 CLI-silent); ``detect`` prints it (D-01). One code path guarantees the
     two commands agree on what was detected.
+
+    ``SidecarExtractor`` is fed the folder's sidecar files (surfaced by the
+    disjoint ``scan_sidecars`` walk) and listed first for readability; actual
+    precedence (``sidecar > filename > subfolder``, D-03) is decided by
+    ``SOURCE_PRECEDENCE`` in the merge, not list order.
     """
     files = Scanner().scan(folder)
-    return AutoDetectParser([FilenameExtractor(), SubfolderExtractor()]).parse(files)
+    sidecar_files = Scanner().scan_sidecars(folder)
+    extractors = [
+        SidecarExtractor(sidecar_files, root=folder),
+        FilenameExtractor(),
+        SubfolderExtractor(),
+    ]
+    return AutoDetectParser(extractors).parse(files)
 
 
 @app.callback()
