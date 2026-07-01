@@ -30,7 +30,7 @@ class Sample:
 
     id: str           # stable id — P1: posix-relative path ("<prompt>/<file>")
     path: Path        # absolute (or cwd-relative) path to the media file on disk
-    media_type: str   # "image" in P1; "video" added in P3
+    media_type: str   # "image" or "video" (video live from P3 via media_type_for)
     dims: dict        # {"step": int, "prompt": str}
 
 

@@ -23,6 +23,7 @@ from pathlib import Path
 
 from sample_grid.core.model import Sample, SampleIndex
 from sample_grid.core.parse.base import FieldValue, rel_id_for
+from sample_grid.core.scan import media_type_for
 from sample_grid.util.paths import to_posix
 
 _STEP_RE = re.compile(r"\d+")
@@ -133,7 +134,7 @@ class FilenameStubParser:
                 Sample(
                     id=rel_id,
                     path=file,
-                    media_type="image",
+                    media_type=media_type_for(file),
                     dims={"step": step, "prompt": prompt},
                 )
             )

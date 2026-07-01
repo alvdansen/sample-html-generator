@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from sample_grid.core.model import Sample, SampleIndex
+from sample_grid.core.scan import media_type_for
 from sample_grid.util.paths import to_posix
 
 
@@ -196,8 +197,10 @@ class AutoDetectParser:
                 index.append(
                     Sample(
                         id=rel_id,
+                        # Classify from rel_id (always carries the true suffix);
+                        # ``path`` may be None for a template-only Sample.
+                        media_type=media_type_for(Path(rel_id)),
                         path=path if path is not None else Path(rel_id),
-                        media_type="image",
                         dims=merged,
                     )
                 )
