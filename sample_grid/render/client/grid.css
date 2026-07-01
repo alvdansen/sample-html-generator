@@ -343,6 +343,15 @@ a.cell:focus-visible {
   font-size: 20px;
 }
 
+/* While a cell is PLAYING the client adds .is-playing and the ▶ fades out
+   (D-04). It reappears on pause/freeze. A blocked cell never gains .is-playing,
+   so its ▶ stays visible (blocked = resting look, never a dead cell — D-11).
+   The fade transition is motion-gated below; under reduced-motion the ▶ simply
+   hides instantly. */
+.cell--video.is-playing .cell__play {
+  opacity: 0;
+}
+
 /* ⧉ pop-out (D-05): a top-corner anchor that opens the raw clip in a new tab.
    Hidden at rest, revealed on hover/focus of the cell so it never competes with
    the ▶ affordance. Muted at rest → full-contrast on its own hover. */
@@ -370,6 +379,11 @@ a.cell:focus-visible {
 @media (prefers-reduced-motion: no-preference) {
   .cell__popout {
     transition: opacity var(--transition), color var(--transition);
+  }
+
+  /* Motion-safe ▶ fade on play/pause (instant under reduced-motion). */
+  .cell__play {
+    transition: opacity var(--transition);
   }
 }
 
