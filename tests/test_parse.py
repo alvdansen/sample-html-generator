@@ -114,7 +114,7 @@ def test_filename_extract(aitoolkit_style_folder: Path) -> None:
     f = labeled / "a_lake" / "step_600_seed42.png"
     f.write_bytes(b"x")
 
-    out = FilenameExtractor().extract([f])
+    out = FilenameExtractor(root=labeled).extract([f])
     (fields,) = out.values()
     assert fields["step"].value == 600
     assert fields["step"].source == "filename"
@@ -124,7 +124,7 @@ def test_filename_extract(aitoolkit_style_folder: Path) -> None:
 
     # ai-toolkit: 20260630__000000600_3.jpg → step=600, prompt=index 3 (A2).
     ai_files = Scanner().scan(aitoolkit_style_folder)
-    ai_out = FilenameExtractor().extract(ai_files)
+    ai_out = FilenameExtractor(root=aitoolkit_style_folder).extract(ai_files)
     sample_fields = next(iter(ai_out.values()))
     assert sample_fields["step"].value == 600
     # prompt surfaced as the integer sample index — no index→text resolution.
@@ -144,7 +144,7 @@ def test_subfolder_extract(tmp_path: Path) -> None:
     deep.parent.mkdir(parents=True, exist_ok=True)
     deep.write_bytes(b"x")
 
-    out = SubfolderExtractor().extract([flat, deep])
+    out = SubfolderExtractor(root=tmp_path).extract([flat, deep])
 
     flat_key = next(k for k in out if k.endswith("whatever.png"))
     assert out[flat_key]["prompt"].value == "a_lake"
