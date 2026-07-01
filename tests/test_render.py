@@ -389,3 +389,28 @@ def test_mixed_grid_image_cell_unchanged() -> None:
     assert 'class="cell cell--video"' in html
     assert html.count('class="cell__popout"') == 1
     assert html.count('class="cell__play"') == 1
+
+
+def test_player_js_inlined_and_offline_safe() -> None:
+    """MEDIA-01/MEDIA-05: the Plan-02 player module is inlined verbatim into the
+    artifact — the runtime hooks used by the manual M1/M5 protocols
+    (``IntersectionObserver`` lazy-load, the ``window.__players`` decoder counter,
+    the ``data-blocked`` poster-fallback marker, and the ``forceRejectPlay`` debug
+    hook) are all present — WHILE the page stays ``file://``-safe with no server
+    surface (no ``EventSource``, no ``fetch(``). Mirrors
+    ``test_toggle_js_inlined_offline_safe`` for the video player."""
+    html = render(_video_grid(), RelativeResolver())
+
+    # The player lifecycle is shipped in the inlined JS (observable runtime hooks).
+    assert "IntersectionObserver" in html
+    assert "__players" in html
+    assert "data-blocked" in html
+    assert "forceRejectPlay" in html
+
+    # Regression tie to the Plan-01 lazy-load markup the player consumes.
+    assert "data-video" in html
+    assert 'preload="none"' in html
+
+    # No server / live-reload / fetch surface leaks into the artifact.
+    assert "EventSource" not in html
+    assert "fetch(" not in html
