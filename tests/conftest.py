@@ -236,6 +236,17 @@ def caption_txt_folder(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def malformed_sidecar_folder(tmp_path: Path) -> Path:
+    """A per-file JSON sidecar with corrupt contents — must be skipped, never raise."""
+    outputs = tmp_path / "malformed"
+    _write_png(outputs / "a_lake" / "broken_1.png", (40, 60, 90))
+    (outputs / "a_lake" / "broken_1.json").write_text(
+        "{ this is not: valid json ", encoding="utf-8"
+    )
+    return outputs
+
+
+@pytest.fixture
 def xss_prompt_index(tmp_path: Path) -> SampleIndex:
     """A hand-built index whose prompt dimension carries HTML metacharacters.
 

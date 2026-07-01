@@ -202,3 +202,89 @@ def test_sidecar_never_a_cell(tmp_path: Path) -> None:
     assert media, "expected the image media to still be discovered"
     assert all(p.suffix.lower() not in _SIDECAR_SUFFIXES for p in media)
     assert any(p.name == "img_0.png" for p in media)
+
+
+# ---------------------------------------------------------------------------
+# Task 2: SidecarExtractor — three association shapes + aliases + graceful skip
+# (META-03 / D-03 highest precedence).
+# ---------------------------------------------------------------------------
+
+
+def _sidecar_extractor(folder: Path):
+    """Build a SidecarExtractor over a folder's scanned sidecars (root-confined)."""
+    from sample_grid.core.parse.sidecar import SidecarExtractor
+    from sample_grid.core.scan import Scanner
+
+    return SidecarExtractor(Scanner().scan_sidecars(folder), root=folder)
+
+
+def test_sidecar_json(sidecar_json_folder: Path) -> None:
+    """A per-file ``<stem>.json`` with case-varied alias keys → sidecar FieldValues."""
+    from sample_grid.core.scan import Scanner
+
+    media = Scanner().scan(sidecar_json_folder)
+    out = _sidecar_extractor(sidecar_json_folder).extract(media)
+
+    (fields,) = out.values()
+    assert fields["step"].value == 800          # "Steps" alias, case-insensitive
+    assert fields["step"].source == "sidecar"
+    assert fields["seed"].value == 42           # "noise_seed" alias
+    assert fields["prompt"].value == "a serene lake"  # "positive_prompt" alias
+    assert fields["prompt"].source == "sidecar"
+
+
+def test_sidecar_csv_comma(sidecar_csv_folder: Path) -> None:
+    """A ``metadata.csv`` row keyed by ``file_name`` with a comma-containing prompt
+    survives INTACT (proves csv.DictReader, not line.split(',') — Pitfall 4)."""
+    from sample_grid.core.scan import Scanner
+
+    media = Scanner().scan(sidecar_csv_folder)
+    out = _sidecar_extractor(sidecar_csv_folder).extract(media)
+
+    key0 = next(k for k in out if k.endswith("img_0.png"))
+    assert out[key0]["prompt"].value == "a lake, at dusk, cinematic"
+    assert out[key0]["step"].value == 500
+    assert out[key0]["seed"].value == 42
+    assert out[key0]["prompt"].source == "sidecar"
+
+
+def test_sidecar_per_folder(per_folder_meta_folder: Path) -> None:
+    """A folder-level ``meta.json`` applies its dims to EVERY media file in it."""
+    from sample_grid.core.scan import Scanner
+
+    media = Scanner().scan(per_folder_meta_folder)
+    out = _sidecar_extractor(per_folder_meta_folder).extract(media)
+
+    assert len(out) == 2  # both frames picked up the folder sidecar
+    for fields in out.values():
+        assert fields["step"].value == 1200  # "global_step" alias
+        assert fields["seed"].value == 7
+        assert fields["prompt"].value == "a serene lake"
+        assert fields["step"].source == "sidecar"
+
+
+def test_sidecar_caption(caption_txt_folder: Path) -> None:
+    """A per-file ``<stem>.txt`` whose whole contents are the prompt → prompt field."""
+    from sample_grid.core.scan import Scanner
+
+    media = Scanner().scan(caption_txt_folder)
+    out = _sidecar_extractor(caption_txt_folder).extract(media)
+
+    (fields,) = out.values()
+    assert fields["prompt"].value == "a lone figure on a snowy ridge, wide shot"
+    assert fields["prompt"].source == "sidecar"
+
+
+def test_sidecar_malformed_skipped(malformed_sidecar_folder: Path) -> None:
+    """A corrupt JSON sidecar is skipped and counted — extract() never raises (D-05)."""
+    from sample_grid.core.scan import Scanner
+
+    media = Scanner().scan(malformed_sidecar_folder)
+    ext = _sidecar_extractor(malformed_sidecar_folder)
+
+    out = ext.extract(media)  # must not raise
+
+    # The broken sidecar produced no dims for its media file.
+    assert all("step" not in f for f in out.values())
+    # ...and it was recorded as skipped rather than silently swallowed.
+    assert any("broken_1" in s for s in ext.skipped)
