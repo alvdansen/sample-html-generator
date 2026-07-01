@@ -64,7 +64,7 @@ def _auto_parse(folder: Path, template: "str | None" = None):
     ]
     if template:
         extractors.insert(0, TemplateParser(template, root=folder))
-    return AutoDetectParser(extractors).parse(files)
+    return AutoDetectParser(extractors, root=folder).parse(files)
 
 
 @app.callback()

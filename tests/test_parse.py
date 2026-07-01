@@ -85,7 +85,7 @@ def test_skip_unclassifiable(tmp_path: Path) -> None:
     # The stub satisfies the runtime-checkable Extractor Protocol.
     assert isinstance(_StubExtractor(), Extractor)
 
-    index, report = AutoDetectParser([_StubExtractor()]).parse([good, bad])
+    index, report = AutoDetectParser([_StubExtractor()], root=tmp_path).parse([good, bad])
 
     assert len(index) == 1
     assert index[0].dims["step"] == 600
@@ -499,7 +499,8 @@ def test_template_override_nested_root(nested_template_folder: Path) -> None:
         [
             TemplateParser("{prompt}/{*}/step_{step}.png", root=folder),
             FilenameExtractor(root=folder),
-        ]
+        ],
+        root=folder,
     ).parse(files)
 
     assert len(index) == 1  # ONE Sample, not two (CR-01 closed)
@@ -523,7 +524,8 @@ def test_sidecar_override_aitoolkit_layout(aitoolkit_sidecar_folder: Path) -> No
         [
             SidecarExtractor(Scanner().scan_sidecars(folder), root=folder),
             FilenameExtractor(root=folder),
-        ]
+        ],
+        root=folder,
     ).parse(files)
 
     assert len(index) == 1  # ONE Sample, not two (WR-01 closed)
@@ -549,9 +551,44 @@ def test_structural_subfolder_single_sample(
         [
             FilenameExtractor(root=folder),
             SubfolderExtractor(root=folder),
-        ]
+        ],
+        root=folder,
     ).parse(files)
 
     assert len(index) == 1  # ONE Sample from one file, not two (WR-05 closed)
     # The disagreement is surfaced, not silent (D-04).
     assert any(fieldname == "step" for fieldname, _ in report.conflicts)
+
+
+def test_resolve_path_basename_parent_collision(tmp_path: Path) -> None:
+    """Post-02-05 review (CR-01 follow-up): ``_resolve_path`` must invert
+    ``rel_id_for`` on the FULL relative token, not a basename+parent heuristic.
+
+    Two physical files share their basename (``step_600.png``) AND their immediate
+    parent name (``2023``) but differ at the grandparent (``lake`` vs ``ocean``).
+    These are two distinct ``rel_id``s (two Samples), but the old resolver matched
+    on ``name`` then tie-broke on ``parent.name`` — both collide, so it returned
+    ``matches[0]`` for BOTH, pointing one Sample at the wrong on-disk file and
+    corrupting ``Sample.path`` (wrong media in the cell). Each Sample's ``path``
+    MUST point to its own file."""
+    from sample_grid.core.parse.base import AutoDetectParser
+    from sample_grid.core.parse.filename import FilenameExtractor
+    from sample_grid.core.scan import Scanner
+
+    a = tmp_path / "lake" / "2023" / "step_600.png"
+    b = tmp_path / "ocean" / "2023" / "step_600.png"
+    for p in (a, b):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"\x89PNG stub")
+
+    files = Scanner().scan(tmp_path)
+    index, _report = AutoDetectParser(
+        [FilenameExtractor(root=tmp_path)], root=tmp_path
+    ).parse(files)
+
+    by_id = {s.id: s.path for s in index}
+    assert len(index) == 2
+    # Each Sample resolves to ITS OWN file — never the sibling that shares
+    # basename+parent (pre-fix both pointed at matches[0]).
+    assert by_id["lake/2023/step_600.png"] == a
+    assert by_id["ocean/2023/step_600.png"] == b

@@ -139,26 +139,22 @@ def merge_fields(
     return final
 
 
-def _resolve_path(rel_id: str, files: list[Path]) -> "Path | None":
+def _resolve_path(rel_id: str, files: list[Path], root: "str | Path") -> "Path | None":
     """Map a ``rel_id`` back to the on-disk file that produced it.
 
-    ``rel_id`` is the file's stable POSIX-relative-to-root token (from
-    ``rel_id_for``): its last segment is the file basename and the segment before
-    it is the file's real parent directory (no longer a detected prompt). Match on
-    basename, breaking any ties with the parent-dir name so identical basenames
-    across sibling folders resolve unambiguously.
+    ``rel_id`` is the file's stable POSIX-relative-to-root token produced by
+    ``rel_id_for``. Resolution is the exact inverse of that same helper: the file
+    whose ``rel_id_for(f, root)`` equals ``rel_id`` is THE file that produced the
+    key — unambiguous by construction. A basename/parent-name heuristic is not
+    sufficient: two files can share both their basename AND their immediate parent
+    directory name while differing higher up the tree (``lake/2023/step_600.png``
+    vs ``ocean/2023/step_600.png``), which are distinct ``rel_id``s but collide on
+    ``name``+``parent.name``. Matching on the full relative token cannot mis-resolve.
     """
-    target = Path(rel_id).name
-    matches = [f for f in files if Path(f).name == target]
-    if not matches:
-        return None
-    if len(matches) == 1:
-        return matches[0]
-    want_parent = Path(rel_id).parent.name
-    for f in matches:
-        if Path(f).parent.name == want_parent:
+    for f in files:
+        if rel_id_for(f, root) == rel_id:
             return f
-    return matches[0]
+    return None
 
 
 class AutoDetectParser:
@@ -170,8 +166,13 @@ class AutoDetectParser:
     deterministic downstream ordering.
     """
 
-    def __init__(self, extractors: "list[Extractor]") -> None:
+    def __init__(self, extractors: "list[Extractor]", root: "str | Path") -> None:
         self.extractors = list(extractors)
+        # The scan root — the single source of truth for inverting ``rel_id_for``
+        # back to the on-disk file (see ``_resolve_path``). Required so path
+        # resolution keys on the SAME full-relative token the extractors keyed on,
+        # never a lossy basename+parent heuristic that can mis-resolve nested files.
+        self.root = Path(root)
 
     def parse(self, files: list[Path]) -> "tuple[SampleIndex, DetectionReport]":
         files = [Path(f) for f in files]
@@ -191,7 +192,7 @@ class AutoDetectParser:
         for rel_id, per_source in per_rel.items():
             merged = merge_fields(per_source, report)
             if "step" in merged and "prompt" in merged:
-                path = _resolve_path(rel_id, files)
+                path = _resolve_path(rel_id, files, self.root)
                 index.append(
                     Sample(
                         id=rel_id,
