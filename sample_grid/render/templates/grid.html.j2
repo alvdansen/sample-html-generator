@@ -38,6 +38,19 @@
     </div>
   </div>
 
+  {# In-page seed-variance marker (D-09). Fired by build_grid's `seed_varies`,
+     which ORs the per-coordinate multi-seed case AND the cross-cell seed
+     confound — so this banner appears in the frozen HTML whenever seeds are
+     mixed, keeping a terminal-free viewer honest. It carries no dynamic data,
+     so there is nothing to escape here; any per-cell seed value below goes
+     through autoescaped {{ }}. #}
+  {% if seed_varies %}
+  <div class="seed-variance" role="status" data-seed-variance>
+    <span class="seed-variance__glyph" aria-hidden="true">⚠</span>
+    <span class="seed-variance__text">Seeds vary across this grid — samples are not seed-locked.</span>
+  </div>
+  {% endif %}
+
   <div class="grid-scroll">
     <div class="grid" role="grid" aria-label="Model samples — steps as rows, prompts as columns">
       {# Corner cell + column (prompt) headers — sticky top #}
@@ -56,6 +69,13 @@
          title="step {{ row.step }} · {{ item.prompt }}">
         <img src="{{ url(item.cell.sample) }}" alt="step {{ row.step }}, {{ item.prompt }}"
              loading="lazy" decoding="async">
+        {# Duplicate-seed alternate badge (D-10/D-09): only on cells where >1
+           sample collided at this coordinate. Every seed value is interpolated
+           through autoescaped {{ }} — never string-concatenated in Python. #}
+        {% if item.cell.has_alternates %}
+        <span class="cell__alt-badge"
+              title="Alternate seeds: {{ item.cell.alternate_seeds | join(', ') }}">alt</span>
+        {% endif %}
       </a>
         {% elif item.cell.state == BROKEN %}
       {# Broken: file present but won't decode — amber, solid, ⚠ (D-10). Not clickable. #}

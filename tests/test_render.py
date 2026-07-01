@@ -175,6 +175,50 @@ def test_prompt_html_escaped(xss_prompt_index) -> None:
     assert "<b>" not in html    # no raw injected element anywhere
 
 
+def test_seed_variance_marker() -> None:
+    """D-09: a GridModel with seed_varies=True renders an in-page seed-variance
+    banner + a per-cell alternate badge on multi-seed cells; seed_varies=False
+    renders no banner. Any dynamic seed value flows through the autoescaped
+    ``{{ }}`` path (never string-concatenated in Python)."""
+    # A metacharacter alternate-seed value proves the badge is autoescaped.
+    evil_seed = '<x>&"'
+    populated = Cell(
+        CellState.POPULATED,
+        sample=_sample("p1/img.png", step=100, prompt="p1"),
+        has_alternates=True,
+        alternate_seeds=[evil_seed, 7],
+    )
+    grid = GridModel(
+        row_values=[100],
+        col_values=["p1"],
+        cells=[[populated]],
+        cell_ar=(16, 9),
+        seed_varies=True,
+    )
+    html = render(grid, RelativeResolver())
+
+    # The banner marker is present (stable machine hook + human-readable text).
+    assert "data-seed-variance" in html
+    assert "Seeds vary" in html
+    # The populated multi-seed cell carries an alternate badge.
+    assert "Alternate seeds" in html
+    # The metacharacter seed value is HTML-escaped, never live markup.
+    assert "&lt;x&gt;" in html
+    assert "<x>" not in html
+
+    # seed_varies=False → no banner marker at all.
+    grid_off = GridModel(
+        row_values=[100],
+        col_values=["p1"],
+        cells=[[Cell(CellState.MISSING)]],
+        cell_ar=(16, 9),
+        seed_varies=False,
+    )
+    html_off = render(grid_off, RelativeResolver())
+    assert "data-seed-variance" not in html_off
+    assert "Seeds vary" not in html_off
+
+
 def test_toggle_js_inlined_offline_safe() -> None:
     """The theme/density toggle JS is inlined verbatim (localStorage + data-set
     wiring intact) AND the artifact carries NO server wiring — proving it is a

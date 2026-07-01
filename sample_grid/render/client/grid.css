@@ -329,3 +329,48 @@ a.cell:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ── Seed-variance marker (D-09) ─────────────────────────────────────────── */
+/* An in-page banner rendered whenever seeds vary — per-coordinate OR cross-cell.
+   Reuses the amber "attention" accent already used for broken cells so the eval
+   viewer reads it as a status warning, not decoration. Part of the artifact, so
+   it survives into the frozen HTML (no terminal needed to see the confound). */
+.seed-variance {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 24px;
+  padding: 8px 12px;
+  border: 1px solid var(--broken-accent);
+  border-radius: var(--radius-control);
+  background: var(--broken-fill);
+  color: var(--broken-accent);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.seed-variance__glyph {
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* Per-cell alternate badge — a small corner tag on a populated cell that had
+   duplicate-seed collisions at its coordinate (the lowest seed won, D-10). */
+.cell {
+  position: relative;
+}
+
+.cell__alt-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: var(--z-cell);
+  padding: 1px 5px;
+  border-radius: var(--radius-cell);
+  background: var(--broken-accent);
+  color: var(--accent-contrast);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  pointer-events: none;
+}

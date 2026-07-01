@@ -70,6 +70,10 @@ def render(
         prompts=grid.col_values,
         url=resolver.url,
         live=live,
+        # D-09: seed-variance state is classified in Python (build_grid), never
+        # inferred in JS. The prezipped `cell` already carries has_alternates /
+        # alternate_seeds for the per-cell badge.
+        seed_varies=grid.seed_varies,
         cell_size_px=cell_size_px,
         css=css,
         js=js,
