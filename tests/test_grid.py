@@ -131,6 +131,99 @@ def test_universal_ar_and_mismatch(
     assert grid.col_values[ci] == hole_coord["prompt"]
 
 
+def _png(tmp_path: Path, name: str) -> Path:
+    """Write a tiny valid 32x18 PNG at ``tmp_path/name`` and return its path."""
+    from PIL import Image
+
+    p = tmp_path / name
+    p.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (32, 18), (12, 34, 56)).save(p, format="PNG")
+    return p
+
+
+def test_duplicate_lowest_seed(tmp_path: Path) -> None:
+    """D-10: duplicate coordinates resolve to the lowest numeric seed,
+    deterministically; the winning cell flags alternates. D-09: the grid marks
+    seed_varies for a per-coordinate multi-seed cell."""
+    index = [
+        Sample(id="p/seed42.png", path=_png(tmp_path, "p/seed42.png"),
+               media_type="image", dims={"step": 200, "prompt": "p", "seed": 42}),
+        Sample(id="p/seed7.png", path=_png(tmp_path, "p/seed7.png"),
+               media_type="image", dims={"step": 200, "prompt": "p", "seed": 7}),
+    ]
+
+    grid = build_grid(index, GridConfig())
+    cell = grid.cells[0][0]
+
+    # Lowest numeric seed (7) wins over 42.
+    assert cell.state == CellState.POPULATED
+    assert cell.sample.dims["seed"] == 7
+    # Re-running the same index yields the identical chosen sample (determinism).
+    again = build_grid(index, GridConfig())
+    assert again.cells[0][0].sample.id == cell.sample.id
+    # The winning cell knows it has alternates and lists both seeds.
+    assert cell.has_alternates is True
+    assert set(cell.alternate_seeds) == {42, 7}
+    # Per-coordinate multi-seed → grid-level seed variance.
+    assert grid.seed_varies is True
+
+    # A single-seed grid does NOT flag seed variance.
+    uniform = build_grid(
+        [Sample(id="p/only.png", path=_png(tmp_path, "p/only.png"),
+                media_type="image", dims={"step": 200, "prompt": "p", "seed": 7})],
+        GridConfig(),
+    )
+    assert uniform.seed_varies is False
+    assert uniform.cells[0][0].has_alternates is False
+
+
+def test_seed_absent_posix_fallback(tmp_path: Path) -> None:
+    """D-10: when no seed is present for duplicates, the posix-sorted-first sample
+    (by stable Sample.id) wins, reproducibly."""
+    index = [
+        Sample(id="p/b.png", path=_png(tmp_path, "p/b.png"),
+               media_type="image", dims={"step": 200, "prompt": "p"}),
+        Sample(id="p/a.png", path=_png(tmp_path, "p/a.png"),
+               media_type="image", dims={"step": 200, "prompt": "p"}),
+    ]
+
+    grid = build_grid(index, GridConfig())
+    cell = grid.cells[0][0]
+
+    # "p/a.png" sorts before "p/b.png" by posix id — deterministic winner.
+    assert cell.sample.id == "p/a.png"
+    assert build_grid(index, GridConfig()).cells[0][0].sample.id == "p/a.png"
+    # No seed anywhere → no cross-cell seed confound.
+    assert grid.seed_varies is False
+
+
+def test_cross_cell_seed_variance(tmp_path: Path) -> None:
+    """D-09: even when EVERY coordinate is single-sample (no cell has alternates),
+    a grid whose populated cells mix distinct seeds flags seed_varies — the
+    cross-cell confound the seed-locked ablation methodology forbids."""
+    mixed = [
+        Sample(id="p/s200.png", path=_png(tmp_path, "p/s200.png"),
+               media_type="image", dims={"step": 200, "prompt": "p", "seed": 1}),
+        Sample(id="p/s1000.png", path=_png(tmp_path, "p/s1000.png"),
+               media_type="image", dims={"step": 1000, "prompt": "p", "seed": 2}),
+    ]
+    grid = build_grid(mixed, GridConfig())
+
+    # No single coordinate has >1 sample, so no cell flags alternates...
+    assert not any(c.has_alternates for row in grid.cells for c in row)
+    # ...yet the grid mixes seed 1 and seed 2 across cells → seed_varies.
+    assert grid.seed_varies is True
+
+    # A grid where every populated cell shares one seed does NOT flag variance.
+    uniform = [
+        Sample(id="p/u200.png", path=_png(tmp_path, "p/u200.png"),
+               media_type="image", dims={"step": 200, "prompt": "p", "seed": 5}),
+        Sample(id="p/u1000.png", path=_png(tmp_path, "p/u1000.png"),
+               media_type="image", dims={"step": 1000, "prompt": "p", "seed": 5}),
+    ]
+    assert build_grid(uniform, GridConfig()).seed_varies is False
+
+
 def test_build_grid_from_handbuilt_index(tmp_path: Path) -> None:
     """P2 seam: a hand-built SampleIndex (no parser) yields a correct GridModel."""
     from PIL import Image

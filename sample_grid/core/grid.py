@@ -10,7 +10,7 @@ flag set when its aspect ratio differs from the detected universal AR (D-11).
 from __future__ import annotations
 
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from math import gcd
 from pathlib import Path
 
@@ -91,17 +91,52 @@ def is_decodable(path: Path) -> bool:
 
 def build_grid(index: SampleIndex, config: GridConfig) -> GridModel:
     """Build a dense Steps x Prompts lattice from a SampleIndex (Pattern 2)."""
-    by_coord = {(s.dims[config.rows], s.dims[config.cols]): s for s in index}
+    # Group every sample by its (row, col) coordinate, then deterministically pick
+    # ONE winner per coordinate — the lowest numeric seed, falling back to the
+    # posix-first Sample.id when no seed is parseable. This replaces the old
+    # last-write-wins dict comprehension, whose winner depended on iteration order
+    # (a cherry-picking hazard — the worst failure for a seed-locked eval, D-10).
+    groups: "dict[tuple, list]" = defaultdict(list)
+    for s in index:  # index is posix-sorted by the scanner → s.id order is stable
+        groups[(s.dims[config.rows], s.dims[config.cols])].append(s)
+
+    def _seed_key(s):
+        try:
+            return (0, int(s.dims["seed"]))  # lowest numeric seed wins
+        except (KeyError, TypeError, ValueError):
+            return (1, 0)                     # no/unparseable seed → posix order
+
+    by_coord: dict = {}
+    alternates: dict = {}
+    for coord, samples in groups.items():
+        by_coord[coord] = min(samples, key=lambda s: (_seed_key(s), s.id))
+        if len(samples) > 1:
+            # Retain every colliding seed for the D-09 in-page marker.
+            alternates[coord] = [s.dims.get("seed") for s in samples]
+
+    # (a) Per-coordinate variance — any coordinate holding >1 DISTINCT non-None
+    # seed. Classified in Python (never inferred in JS), independent of render.
+    per_coord_varies = any(
+        len({s.dims.get("seed") for s in samples if s.dims.get("seed") is not None}) > 1
+        for samples in groups.values()
+    )
 
     row_values = sorted({s.dims[config.rows] for s in index}, key=natural_key)
     col_values = sorted({s.dims[config.cols] for s in index}, key=natural_key)
     cell_ar = detect_universal_ar(index)
 
+    # (b) Cross-cell confound — every coordinate single-sample, but the seeds of
+    # the chosen samples differ across POPULATED cells. This is the "silently
+    # mixed" failure the user's seed-locked non-cherry-picked ablation forbids
+    # (success criterion 4), so the marker must fire for it too — collected below.
+    cross_cell_seeds: set = set()
+
     cells: list[list[Cell]] = []
     for row in row_values:
         row_cells: list[Cell] = []
         for col in col_values:
-            sample = by_coord.get((row, col))
+            coord = (row, col)
+            sample = by_coord.get(coord)
             if sample is None:
                 # Absent coordinate — never skipped (Pitfall 1). (D-09)
                 row_cells.append(Cell(CellState.MISSING))
@@ -109,19 +144,30 @@ def build_grid(index: SampleIndex, config: GridConfig) -> GridModel:
                 # File present but won't decode → BROKEN, sample retained. (D-10)
                 row_cells.append(Cell(CellState.BROKEN, sample=sample))
             else:
-                # Populated; flag a stray aspect ratio for letterbox fallback. (D-11)
+                # Populated; flag a stray aspect ratio for letterbox fallback (D-11)
+                # and surface any duplicate-seed alternates on this cell (D-10/D-09).
+                seed = sample.dims.get("seed")
+                if seed is not None:
+                    cross_cell_seeds.add(seed)
+                alt = alternates.get(coord)
                 row_cells.append(
                     Cell(
                         CellState.POPULATED,
                         sample=sample,
                         ar_mismatch=_ar_of(sample.path) != cell_ar,
+                        has_alternates=alt is not None,
+                        alternate_seeds=alt if alt is not None else [],
                     )
                 )
         cells.append(row_cells)
+
+    cross_cell_varies = len(cross_cell_seeds) > 1
+    seed_varies = per_coord_varies or cross_cell_varies
 
     return GridModel(
         row_values=row_values,
         col_values=col_values,
         cells=cells,
         cell_ar=cell_ar,
+        seed_varies=seed_varies,
     )
