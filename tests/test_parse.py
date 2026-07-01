@@ -444,3 +444,85 @@ def test_template_precedence_fills_gaps(tmp_path: Path) -> None:
     assert dims["seed"] == 42
     # The step disagreement (template 600 vs sidecar 999) is still counted (D-04).
     assert any(fieldname == "step" for fieldname, _ in report.conflicts)
+
+
+# ---------------------------------------------------------------------------
+# Plan 02-05 gap-closure regressions (CR-01 · WR-01 · WR-05) — the previously
+# UNTESTED territory. Each layout produced TWO Samples from ONE physical file
+# before the shared ``rel_id_for`` merge key; each asserts ``len(index) == 1``
+# and would FAIL if ``rel_id_for`` were reverted.
+# ---------------------------------------------------------------------------
+
+
+def test_template_override_nested_root(nested_template_folder: Path) -> None:
+    """CR-01 / META-04: a media file >2 segments below the scan root
+    (``lake/2023/step_600.png``) yields exactly ONE Sample. The template captures
+    prompt+step and WINS (A1) over the filename extractor's parent-dir guess
+    (``2023``); pre-fix the divergent keys emitted two phantom Samples."""
+    from sample_grid.core.parse.base import AutoDetectParser
+    from sample_grid.core.parse.filename import FilenameExtractor
+    from sample_grid.core.parse.template import TemplateParser
+    from sample_grid.core.scan import Scanner
+
+    folder = nested_template_folder
+    files = Scanner().scan(folder)
+    index, _report = AutoDetectParser(
+        [
+            TemplateParser("{prompt}/{*}/step_{step}.png", root=folder),
+            FilenameExtractor(root=folder),
+        ]
+    ).parse(files)
+
+    assert len(index) == 1  # ONE Sample, not two (CR-01 closed)
+    assert index[0].dims["prompt"] == "lake"  # template-captured field wins (A1)
+    assert index[0].dims["step"] == 600
+
+
+def test_sidecar_override_aitoolkit_layout(aitoolkit_sidecar_folder: Path) -> None:
+    """WR-01 / META-03: for an ai-toolkit integer-index file, the sidecar prompt
+    (precedence 3) overrides the filename's integer sample-index prompt. Exactly
+    ONE Sample results; pre-fix the sidecar keyed on the folder name while the
+    filename keyed on the integer index, so the override silently no-op'd."""
+    from sample_grid.core.parse.base import AutoDetectParser
+    from sample_grid.core.parse.filename import FilenameExtractor
+    from sample_grid.core.parse.sidecar import SidecarExtractor
+    from sample_grid.core.scan import Scanner
+
+    folder = aitoolkit_sidecar_folder
+    files = Scanner().scan(folder)
+    index, _report = AutoDetectParser(
+        [
+            SidecarExtractor(Scanner().scan_sidecars(folder), root=folder),
+            FilenameExtractor(root=folder),
+        ]
+    ).parse(files)
+
+    assert len(index) == 1  # ONE Sample, not two (WR-01 closed)
+    # Sidecar (precedence 3) overrides the filename integer-index prompt (3).
+    assert index[0].dims["prompt"] == "a serene lake"
+
+
+def test_structural_subfolder_single_sample(
+    structural_subfolder_folder: Path,
+) -> None:
+    """WR-05 / META-02: contradictory filename (step=650) vs subfolder (step=600)
+    metadata for one physical file yields exactly ONE Sample; precedence
+    arbitrates and the step disagreement is COUNTED in the report (never a silent
+    duplicate). Pre-fix the divergent prompt-derived keys emitted two Samples."""
+    from sample_grid.core.parse.base import AutoDetectParser
+    from sample_grid.core.parse.filename import FilenameExtractor
+    from sample_grid.core.parse.subfolder import SubfolderExtractor
+    from sample_grid.core.scan import Scanner
+
+    folder = structural_subfolder_folder
+    files = Scanner().scan(folder)
+    index, report = AutoDetectParser(
+        [
+            FilenameExtractor(root=folder),
+            SubfolderExtractor(root=folder),
+        ]
+    ).parse(files)
+
+    assert len(index) == 1  # ONE Sample from one file, not two (WR-05 closed)
+    # The disagreement is surfaced, not silent (D-04).
+    assert any(fieldname == "step" for fieldname, _ in report.conflicts)

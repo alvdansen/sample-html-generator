@@ -262,6 +262,60 @@ def malformed_sidecar_folder(tmp_path: Path) -> Path:
     return outputs
 
 
+# ---------------------------------------------------------------------------
+# Gap-closure fixtures (Plan 02-05 / CR-01 · WR-01 · WR-05) — the previously
+# UNTESTED territory: paths >2 segments below the scan root, ai-toolkit
+# integer-index layouts, and contradictory filename-vs-subfolder metadata. Each
+# produced DUPLICATE Samples before the shared rel_id_for merge key.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def nested_template_folder(tmp_path: Path) -> Path:
+    """A media file THREE segments below the scan root: ``root/lake/2023/step_600.png``.
+
+    The extra ``2023/`` directory makes the file's rel-to-root path 3 segments —
+    the case where the old full-rel template key (``lake/2023/step_600.png``) and
+    the old prompt-derived filename key (``2023/step_600.png``) diverged into two
+    buckets (CR-01). Returns the scan root.
+    """
+    outputs = tmp_path / "nested_template"
+    _write_png(outputs / "lake" / "2023" / "step_600.png", (40, 60, 90))
+    return outputs
+
+
+@pytest.fixture
+def aitoolkit_sidecar_folder(tmp_path: Path) -> Path:
+    """An ai-toolkit integer-index media file WITH a per-file sidecar prompt.
+
+    Layout: ``root/my-job/20260630__000000600_3.jpg`` (step=600, trailing index 3)
+    beside ``root/my-job/20260630__000000600_3.json`` = ``{"prompt": "a serene lake"}``.
+    FilenameExtractor surfaces the trailing ``3`` as an integer prompt; the sidecar
+    (highest precedence, D-03) must override it. Pre-fix the two keyed on different
+    tokens and the override silently no-op'd (WR-01). Returns the scan root.
+    """
+    outputs = tmp_path / "aitoolkit_sidecar"
+    _write_png(outputs / "my-job" / "20260630__000000600_3.jpg", (30, 50, 70))
+    (outputs / "my-job" / "20260630__000000600_3.json").write_text(
+        json.dumps({"prompt": "a serene lake"}), encoding="utf-8"
+    )
+    return outputs
+
+
+@pytest.fixture
+def structural_subfolder_folder(tmp_path: Path) -> Path:
+    """Contradictory filename vs subfolder step for ONE physical file.
+
+    Layout: ``root/a_lake/step_600/final_step_650.png``. The filename token says
+    step=650 (parent ``step_600`` becomes its prompt); the subfolder walk says
+    step=600 (``a_lake`` becomes its prompt). Pre-fix these prompt-derived keys
+    diverged into two buckets → two phantom Samples (WR-05). Returns the scan root.
+    """
+    outputs = tmp_path / "structural_subfolder"
+    _write_png(outputs / "a_lake" / "step_600" / "final_step_650.png", (40, 60, 90))
+    return outputs
+
+
 @pytest.fixture
 def xss_prompt_index(tmp_path: Path) -> SampleIndex:
     """A hand-built index whose prompt dimension carries HTML metacharacters.
