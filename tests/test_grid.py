@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sample_grid.core.grid import build_grid, detect_universal_ar, is_decodable
+from sample_grid.core.grid import (
+    build_grid,
+    detect_universal_ar,
+    is_decodable,
+    natural_key,
+)
 from sample_grid.core.model import (
     Cell,
     CellState,
@@ -44,6 +49,21 @@ def test_is_decodable_true_for_valid_false_for_corrupt(tmp_path: Path) -> None:
 
     assert is_decodable(good) is True
     assert is_decodable(bad) is False  # no raise — just False
+
+
+def test_natural_sort(unpadded_step_folder: Path) -> None:
+    """GRID-06 / D-11: unpadded numeric axes sort by magnitude, not lexically."""
+    # Direct unit assert on the key: lexical would give [1000, 200, 30000].
+    assert sorted(
+        ["step_1000", "step_200", "step_30000"], key=natural_key
+    ) == ["step_200", "step_1000", "step_30000"]
+
+    # Pure-int values sort ahead of any non-numeric label (numeric-first tier).
+    assert sorted([30000, "step_5", 200], key=natural_key) == [200, 30000, "step_5"]
+
+    # End-to-end through build_grid: the derived row axis is numerically ordered.
+    grid = build_grid(_index(unpadded_step_folder), GridConfig())
+    assert grid.row_values == [200, 1000, 30000]
 
 
 def test_orientation_steps_rows(dense_sample_folder: Path, grid_axes: dict) -> None:

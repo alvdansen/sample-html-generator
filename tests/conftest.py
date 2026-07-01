@@ -119,6 +119,26 @@ def stray_ar_sample_folder(tmp_path: Path) -> Path:
     return outputs
 
 
+# Unpadded step magnitudes spanning three orders of magnitude — the natural-sort
+# proof (GRID-06 / D-11): lexical order would wrongly interleave 1000 before 200.
+UNPADDED_STEPS = [200, 1000, 30000]
+
+
+@pytest.fixture
+def unpadded_step_folder(tmp_path: Path) -> Path:
+    """A single-prompt folder whose steps are unpadded and span magnitudes.
+
+    Layout: ``<tmp>/unpadded/<prompt>/step_<N>.png`` for N in 200, 1000, 30000.
+    A lexical sort would order these [1000, 200, 30000]; a numeric-aware
+    ``natural_key`` must order them [200, 1000, 30000].
+    """
+    outputs = tmp_path / "unpadded"
+    prompt = PROMPTS[0]
+    for si, step in enumerate(UNPADDED_STEPS):
+        _write_png(outputs / prompt / f"step_{step}.png", (40, 60 + si * 20, 90))
+    return outputs
+
+
 @pytest.fixture
 def xss_prompt_index(tmp_path: Path) -> SampleIndex:
     """A hand-built index whose prompt dimension carries HTML metacharacters.

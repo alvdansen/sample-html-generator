@@ -9,6 +9,7 @@ flag set when its aspect ratio differs from the detected universal AR (D-11).
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from math import gcd
 from pathlib import Path
@@ -24,17 +25,34 @@ from sample_grid.core.model import (
 )
 
 
-def _as_number(value):
-    """Sort key: numeric when the value is int-like, else fall back to string.
+_DIGITS = re.compile(r"(\d+)")
 
-    Trivial P1 step ordering so ``step_1000`` sorts after ``step_200`` instead of
-    lexically before it. Full convention-aware numeric-vs-lexical robustness is
-    Phase 2 (GRID-06) — keep this one line.
+
+def natural_key(value):
+    """Numeric-aware ("natural") sort key (GRID-06 / D-11).
+
+    ``step_200`` < ``step_1000`` < ``step_30000`` even when unpadded: embedded
+    digit runs compare as integers, not lexically. Pure-int values sort ahead of
+    any non-numeric label (numeric-first tier preserved from the old ``_as_number``
+    stub), and the same key orders a numeric seed axis correctly too.
     """
+    s = str(value)
+    # A whole-value pure number gets the strongest (numeric-first) ordering tier.
+    # NOTE: the tier flag must NOT carry the full string alongside it — doing so
+    # (as an earlier sketch did) makes the outer tuple compare lexically and
+    # defeats the natural key ("step_1000" would sort before "step_200"). The
+    # natural `key` tuple alone must break ties within the label tier.
     try:
-        return (0, int(value))
+        return (0, int(s))
     except (TypeError, ValueError):
-        return (1, str(value))
+        pass
+    parts = _DIGITS.split(s)  # e.g. "step_200" -> ["step_", "200", ""]
+    key = tuple(
+        (1, p.lower()) if i % 2 == 0 else (0, int(p))
+        for i, p in enumerate(parts)
+        if p != ""
+    )
+    return (1, key)
 
 
 def _ar_of(path: Path) -> "tuple[int, int] | None":
@@ -75,8 +93,8 @@ def build_grid(index: SampleIndex, config: GridConfig) -> GridModel:
     """Build a dense Steps x Prompts lattice from a SampleIndex (Pattern 2)."""
     by_coord = {(s.dims[config.rows], s.dims[config.cols]): s for s in index}
 
-    row_values = sorted({s.dims[config.rows] for s in index}, key=_as_number)
-    col_values = sorted({s.dims[config.cols] for s in index})
+    row_values = sorted({s.dims[config.rows] for s in index}, key=natural_key)
+    col_values = sorted({s.dims[config.cols] for s in index}, key=natural_key)
     cell_ar = detect_universal_ar(index)
 
     cells: list[list[Cell]] = []
