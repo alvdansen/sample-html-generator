@@ -15,7 +15,9 @@ import typer
 
 from sample_grid.core.grid import build_grid
 from sample_grid.core.model import CellState, GridConfig
-from sample_grid.core.parse.filename import FilenameStubParser
+from sample_grid.core.parse.base import AutoDetectParser
+from sample_grid.core.parse.filename import FilenameExtractor
+from sample_grid.core.parse.subfolder import SubfolderExtractor
 from sample_grid.core.scan import Scanner
 from sample_grid.render.renderer import render
 from sample_grid.render.resolver import RelativeResolver
@@ -28,6 +30,20 @@ app = typer.Typer(
 # The directory name created inside the user-supplied output base (D-06).
 GRID_OUTPUT_DIRNAME = "grid-output"
 ASSETS_DIRNAME = "assets"
+
+# How many example mappings / conflict / skip entries `detect` lists inline.
+_PREVIEW_LIMIT = 5
+
+
+def _auto_parse(folder: Path):
+    """Run the shared auto-detect pipeline: scan → extract → merge.
+
+    Returns ``(SampleIndex, DetectionReport)``. ``build`` discards the report
+    (D-02 CLI-silent); ``detect`` prints it (D-01). One code path guarantees the
+    two commands agree on what was detected.
+    """
+    files = Scanner().scan(folder)
+    return AutoDetectParser([FilenameExtractor(), SubfolderExtractor()]).parse(files)
 
 
 @app.callback()
@@ -89,8 +105,11 @@ def build(
     out_dir.mkdir(parents=True, exist_ok=True)
     index_path = out_dir / "index.html"
 
-    files = Scanner().scan(folder)
-    index = FilenameStubParser().parse(files)
+    # Auto-detect (filename + subfolder). The DetectionReport is deliberately
+    # DISCARDED here — `build` renders with best-guess detection and prints no
+    # conflicts/skips/multi-seed warnings to the terminal (D-02). Inspection is
+    # the explicit `detect` step; the artifact still carries the D-09 marker.
+    index, _report = _auto_parse(folder)
 
     # Empty-state: never emit a silent content-free grid (UI-SPEC).
     if not index:
@@ -122,6 +141,82 @@ def build(
     typer.echo(f"Wrote {index_path}")
     if not no_open:
         webbrowser.open(index_path.resolve().as_uri())
+
+
+@app.command()
+def detect(
+    folder: Path = typer.Argument(..., help="Folder of model samples to inspect."),
+) -> None:
+    """Preview auto-detection for FOLDER, then exit WITHOUT rendering (META-05 / D-01).
+
+    Runs the exact same pipeline as ``build`` (scan → filename/subfolder extract →
+    precedence merge → build_grid) and prints what it found: the detected axes and
+    their values, populated/missing counts, a few example cell→dims mappings,
+    source disagreements (D-04), unclassifiable files (D-05), and TWO distinct
+    seed signals — per-coordinate multi-seed cells and cross-cell seed variance
+    (D-09). It never writes an ``index.html``.
+    """
+    index, report = _auto_parse(folder)
+
+    if not index:
+        typer.echo(
+            "No samples found. Point detect at a folder containing "
+            f".png, .jpg, or .webp files. Looked in: {folder}"
+        )
+        raise typer.Exit(0)
+
+    grid = build_grid(index, GridConfig())
+
+    populated = [
+        c for row in grid.cells for c in row if c.state == CellState.POPULATED
+    ]
+    missing = [c for row in grid.cells for c in row if c.state == CellState.MISSING]
+
+    # Detected axes and their actual values (D-11: headers show real values).
+    typer.echo(f"Rows (step): {grid.row_values}")
+    typer.echo(f"Cols (prompt): {grid.col_values}")
+    typer.echo(f"Cells: {len(populated)} populated, {len(missing)} missing")
+
+    typer.echo("Example mappings:")
+    for cell in populated[:_PREVIEW_LIMIT]:
+        s = cell.sample
+        typer.echo(f"  (step={s.dims.get('step')}, prompt={s.dims.get('prompt')}) -> {s.id}")
+
+    # D-04: conflicts resolve silently by precedence but are counted + listed here.
+    typer.echo(
+        f"{len(report.conflicts)} samples had source disagreement: "
+        f"{report.conflicts[:_PREVIEW_LIMIT]}"
+    )
+    # D-05: unclassifiable files are skipped + counted here.
+    typer.echo(
+        f"{len(report.skipped)} files could not be classified: "
+        f"{report.skipped[:_PREVIEW_LIMIT]}"
+    )
+
+    # Seed signal 1 (per-coordinate) — cells where >1 sample collided at one
+    # (step, prompt) coordinate; the lowest seed rendered, the rest are alternates.
+    alt_cells = [c for c in populated if c.has_alternates]
+    typer.echo(
+        f"{len(alt_cells)} cells hold multiple seeds: "
+        f"{[c.alternate_seeds for c in alt_cells][:_PREVIEW_LIMIT]}"
+    )
+
+    # Seed signal 2 (cross-cell, D-09) — DISTINCT from the per-coordinate count:
+    # the seeds of the chosen samples differ across populated cells, the silent
+    # confound the seed-locked ablation methodology forbids. Only printed when it
+    # actually applies (>1 distinct non-None seed across the grid).
+    distinct_seeds = sorted(
+        {
+            c.sample.dims.get("seed")
+            for c in populated
+            if c.sample.dims.get("seed") is not None
+        }
+    )
+    if len(distinct_seeds) > 1:
+        typer.echo(f"seeds vary across grid: {distinct_seeds}")
+
+    # Exit BEFORE any render / asset copy (mirror build's empty-state early exit).
+    raise typer.Exit(0)
 
 
 if __name__ == "__main__":
