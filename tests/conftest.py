@@ -168,6 +168,22 @@ def aitoolkit_style_folder(tmp_path: Path) -> Path:
     return outputs
 
 
+@pytest.fixture
+def template_noise_folder(tmp_path: Path) -> Path:
+    """A media file whose name carries trailing noise the ``{*}`` token absorbs.
+
+    Layout: ``<tmp>/template_noise/a_lake/step_600_seed42_00042_20260630.png``.
+    The ``_00042_20260630`` tail (sample index + a date) is real-world junk that a
+    template like ``{prompt}/step_{step}_seed{seed}_{*}.png`` must still match by
+    letting the explicit ``{*}`` ignore token absorb it. Returns the folder.
+    """
+    outputs = tmp_path / "template_noise"
+    _write_png(
+        outputs / "a_lake" / "step_600_seed42_00042_20260630.png", (40, 60, 90)
+    )
+    return outputs
+
+
 # ---------------------------------------------------------------------------
 # Sidecar fixtures (Plan 02-03 / META-03) — the three real-world association
 # shapes plus the caption-file convention. Each folder carries image media the

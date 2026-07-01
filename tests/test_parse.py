@@ -157,6 +157,95 @@ def test_subfolder_extract(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Plan 02-04 Task 1: template DSL → regex over the relative posix path (META-04).
+# ---------------------------------------------------------------------------
+
+
+def test_template_basic(tmp_path: Path) -> None:
+    """``{prompt}/step_{step}_seed{seed}.png`` over ``a_lake/step_600_seed42.png``
+    → prompt="a_lake", step=600, seed=42 with numeric fields coerced to int,
+    source="template" (META-04 / Pattern C)."""
+    from sample_grid.core.parse.template import TemplateParser
+
+    f = tmp_path / "a_lake" / "step_600_seed42.png"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_bytes(b"x")
+
+    out = TemplateParser(
+        "{prompt}/step_{step}_seed{seed}.png", root=tmp_path
+    ).extract([f])
+
+    (fields,) = out.values()
+    assert fields["prompt"].value == "a_lake"
+    assert fields["step"].value == 600
+    assert isinstance(fields["step"].value, int)
+    assert fields["seed"].value == 42
+    assert isinstance(fields["seed"].value, int)
+    assert fields["step"].source == "template"
+
+
+def test_template_noise_absorb(template_noise_folder: Path) -> None:
+    """An explicit ``{*}`` ignore token absorbs the trailing date/index so a real
+    filename still matches: ``{prompt}/step_{step}_seed{seed}_{*}.png`` matches
+    ``a_lake/step_600_seed42_00042_20260630.png``."""
+    from sample_grid.core.parse.template import TemplateParser
+    from sample_grid.core.scan import Scanner
+
+    files = Scanner().scan(template_noise_folder)
+    out = TemplateParser(
+        "{prompt}/step_{step}_seed{seed}_{*}.png", root=template_noise_folder
+    ).extract(files)
+
+    (fields,) = out.values()
+    assert fields["prompt"].value == "a_lake"
+    assert fields["step"].value == 600
+    assert fields["seed"].value == 42
+
+
+def test_template_unmapped_fields(tmp_path: Path) -> None:
+    """``{model}``/``{checkpoint}``/``{cfg}`` parse cleanly but stay unmapped to
+    axes and never raise (D-07): ``{model}/{prompt}/step_{step}.png`` captures
+    model + prompt + step without error."""
+    from sample_grid.core.parse.template import TemplateParser
+
+    f = tmp_path / "sdxl" / "a_lake" / "step_600.png"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_bytes(b"x")
+
+    # Must not raise even though {model} is not a grid axis (D-07).
+    out = TemplateParser(
+        "{model}/{prompt}/step_{step}.png", root=tmp_path
+    ).extract([f])
+
+    (fields,) = out.values()
+    assert fields["model"].value == "sdxl"
+    assert fields["model"].source == "template"
+    assert fields["prompt"].value == "a_lake"
+    assert fields["step"].value == 600
+
+
+def test_template_nonmatch_skipped(tmp_path: Path) -> None:
+    """A file whose relative path does NOT fullmatch the template is skipped and
+    counted, never force-grouped (Pitfall 6 / D-05)."""
+    from sample_grid.core.parse.template import TemplateParser
+
+    good = tmp_path / "a_lake" / "step_600.png"
+    good.parent.mkdir(parents=True, exist_ok=True)
+    good.write_bytes(b"x")
+    bad = tmp_path / "a_lake" / "notes.png"
+    bad.write_bytes(b"x")
+
+    parser = TemplateParser("{prompt}/step_{step}.png", root=tmp_path)
+    out = parser.extract([good, bad])
+
+    # Only the matching file is emitted; the non-match is recorded, not grouped.
+    assert len(out) == 1
+    (key,) = out
+    assert key.endswith("step_600.png")
+    assert any("notes.png" in s for s in parser.skipped)
+
+
+# ---------------------------------------------------------------------------
 # Task 1: Scanner.scan_sidecars — surface sidecars WITHOUT polluting the media
 # index (META-03 blocker / Pitfall 6).
 # ---------------------------------------------------------------------------
