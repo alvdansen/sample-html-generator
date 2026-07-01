@@ -290,6 +290,89 @@ a.cell:focus-visible {
   object-fit: contain;
 }
 
+/* ── Video cells (P3 / MEDIA-01) ─────────────────────────────────────────── */
+/* A video element drops into the SAME .cell box as an image and fills it
+   identically (cover at the universal AR); a stray-AR clip letterboxes too. */
+.cell--video > video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cell--mismatch video {
+  object-fit: contain;
+}
+
+/* A resting video cell is a role=button DIV (full-cell play/pause, Plan 02) —
+   hint it like the click-to-open image anchor and reuse the same focus ring. */
+.cell--video {
+  cursor: pointer;
+}
+
+.cell--video:focus-visible {
+  outline: var(--ring-width) solid var(--focus-ring);
+  outline-offset: var(--ring-offset);
+}
+
+/* ▶ play overlay (D-04): a NEUTRAL white triangle on a soft dark scrim, centered.
+   Deliberately NOT --accent — it must read as a plain playability affordance,
+   not a status color. The client hides it while the clip is playing. */
+.cell__play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: var(--z-cell);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12%;
+  min-width: 20px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 28px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* Compact density steps the glyph down to match the smaller cell. */
+:root[data-density="compact"] .cell__play {
+  font-size: 20px;
+}
+
+/* ⧉ pop-out (D-05): a top-corner anchor that opens the raw clip in a new tab.
+   Hidden at rest, revealed on hover/focus of the cell so it never competes with
+   the ▶ affordance. Muted at rest → full-contrast on its own hover. */
+.cell__popout {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: var(--z-cell);
+  line-height: 1;
+  text-decoration: none;
+  color: var(--text-muted);
+  opacity: 0;
+}
+
+.cell--video:hover .cell__popout,
+.cell--video:focus-within .cell__popout {
+  opacity: 1;
+}
+
+.cell__popout:hover,
+.cell__popout:focus-visible {
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cell__popout {
+    transition: opacity var(--transition), color var(--transition);
+  }
+}
+
 /* Missing vs broken must be UNMISTAKABLE (D-09/D-10): they differ on border
    STYLE (dashed vs solid), COLOR (cold neutral vs warm amber), and GLYPH
    (— vs ⚠) simultaneously. Neither is ever an empty/black media cell, and

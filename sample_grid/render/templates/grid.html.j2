@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark" data-density="comfortable">
+<html lang="en" data-theme="dark" data-density="comfortable" data-sync="independent">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -64,6 +64,32 @@
       <div class="row-header" role="rowheader">{{ row.step }}</div>
       {% for item in row.cells %}
         {% if item.cell.state == POPULATED %}
+          {% if item.cell.sample.media_type == "video" %}
+      {# Video cell (MEDIA-01): a DIV, NOT an anchor — full-cell click is
+         play/pause in Plan 02. The <video> carries NO eager src; the client
+         attaches `data-src` on first play. The poster is the clip's OWN first
+         frame via the `#t=0.001` media fragment (no ffmpeg / no generated
+         thumbnails, D-10). `#t=0.001` is a STATIC in-template literal — never
+         user data (Pitfall 5); every dynamic value stays autoescaped in {{ }}. #}
+      <div class="cell cell--video{% if item.cell.ar_mismatch %} cell--mismatch{% endif %}"
+           data-video data-src="{{ url(item.cell.sample) }}#t=0.001"
+           role="button" tabindex="0" aria-pressed="false"
+           aria-label="Play/pause — step {{ row.step }}, {{ item.prompt }}"
+           title="step {{ row.step }} · {{ item.prompt }}">
+        <video muted playsinline loop preload="none" aria-hidden="true"></video>
+        <span class="cell__play" aria-hidden="true">▶</span>
+        {# Pop-out (D-05): opens the RAW clip in a new tab using the CLEAN url
+           (NO `#t=` poster fragment). rel=noopener noreferrer blocks reverse
+           tabnabbing on the new tab (T-3-03), identical to the image anchor. #}
+        <a class="cell__popout" href="{{ url(item.cell.sample) }}"
+           target="_blank" rel="noopener noreferrer"
+           aria-label="Open clip in new tab">⧉</a>
+        {% if item.cell.has_alternates %}
+        <span class="cell__alt-badge"
+              title="Alternate seeds: {{ item.cell.alternate_seeds | join(', ') }}">alt</span>
+        {% endif %}
+      </div>
+          {% else %}
       <a class="cell{% if item.cell.ar_mismatch %} cell--mismatch{% endif %}"
          href="{{ url(item.cell.sample) }}" target="_blank" rel="noopener noreferrer"
          title="step {{ row.step }} · {{ item.prompt }}">
@@ -77,6 +103,7 @@
               title="Alternate seeds: {{ item.cell.alternate_seeds | join(', ') }}">alt</span>
         {% endif %}
       </a>
+          {% endif %}
         {% elif item.cell.state == BROKEN %}
       {# Broken: file present but won't decode — amber, solid, ⚠ (D-10). Not clickable. #}
       <div class="cell cell--broken"
