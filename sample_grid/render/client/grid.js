@@ -109,6 +109,50 @@
     evictOldest: function () { if (this.playing.length) this.playing[0].pause(); }
   };
 
+  // ── Global playback controls (MEDIA-04 / D-09) ─────────────────────────────
+  // pauseAll(): calm the whole grid back to frozen comparison frames. In Synced
+  // mode read the master position ONCE and snap EVERY playing cell to it before
+  // pausing them all — the comparison freezes on one frame index across the grid
+  // (D-02). In Independent mode each cell freezes on its OWN current frame. Reuses
+  // the Plan-03 _markPaused helper so ▶ returns + aria-pressed flips per cell.
+  manager.pauseAll = function () {
+    if (!this.playing.length) return;
+    var cells = this.playing.slice(); // snapshot — _markPaused mutates the set
+    var pos = isSynced() ? this.clock.position() : null; // master frame, read ONCE
+    for (var i = 0; i < cells.length; i++) {
+      var v = cells[i].video;
+      if (v) {
+        if (pos !== null) { try { v.currentTime = pos; } catch (e) {} } // snap-on-pause
+        v.pause();
+      }
+      cells[i]._markPaused();
+    }
+  };
+
+  // playVisible(): start ONLY the cells currently in the viewport — never all
+  // cells (D-09), never more than the concurrent-play cap. Iterate [data-video]
+  // in document order (top-left → bottom-right) and test each against the
+  // viewport with getBoundingClientRect. A `budget` reserves cap slots
+  // synchronously (per-cell play() resolves async), so we can never exceed
+  // PLAY_CAP. In Synced mode each started cell seeks to the master frame first
+  // (play() already does this); in Independent it starts from frame 0 / its
+  // frozen frame. Off-screen cells stay torn down (Plan-02 teardown intact).
+  manager.playVisible = function () {
+    var els = document.querySelectorAll("[data-video]");
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    var vw = window.innerWidth || document.documentElement.clientWidth;
+    var budget = PLAY_CAP - this.playing.length; // remaining concurrent-play slots
+    for (var i = 0; i < els.length && budget > 0; i++) {
+      var cell = els[i].__cell;
+      if (!cell || cell.playing) continue;
+      var r = els[i].getBoundingClientRect();
+      var onscreen = r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+      if (!onscreen) continue; // NEVER start an off-screen cell
+      cell.play();
+      budget--; // reserve the slot now — play()'s track() lands on the next tick
+    }
+  };
+
   function VideoCell(el) {
     this.el = el;
     this.video = el.querySelector("video");
@@ -299,5 +343,18 @@
         }
       });
     });
+  }
+
+  // Wire the two global playback controls (MEDIA-04). These are plain ACTION
+  // buttons — NOT [data-set] toggles — so each gets its own click handler. Guard
+  // for null so a JS-partial / control-less page never throws. There is
+  // deliberately NO whole-grid play-everything control (D-09 calm default).
+  var pauseAllBtn = document.getElementById("pause-all");
+  if (pauseAllBtn) {
+    pauseAllBtn.addEventListener("click", function () { manager.pauseAll(); });
+  }
+  var playVisibleBtn = document.getElementById("play-visible");
+  if (playVisibleBtn) {
+    playVisibleBtn.addEventListener("click", function () { manager.playVisible(); });
   }
 })();
