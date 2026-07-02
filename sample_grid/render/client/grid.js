@@ -106,7 +106,17 @@
       var i = this.playing.indexOf(cell);
       if (i !== -1) this.playing.splice(i, 1);
     },
-    evictOldest: function () { if (this.playing.length) this.playing[0].pause(); }
+    // evictOldest(): free ONE concurrent-play slot when the cap is hit. It must
+    // NOT route through VideoCell.pause(), whose Synced branch pauses EVERY
+    // playing cell (that pause-all cascade would freeze the whole synced
+    // comparison the moment the grid exceeds PLAY_CAP — CR-01). Tear down exactly
+    // the oldest cell via the single-cell _markPaused primitive.
+    evictOldest: function () {
+      if (!this.playing.length) return;
+      var victim = this.playing[0];
+      if (victim.video) victim.video.pause();
+      victim._markPaused(); // pauses + untracks exactly one cell, no synced cascade
+    }
   };
 
   // ── Global playback controls (MEDIA-04 / D-09) ─────────────────────────────
