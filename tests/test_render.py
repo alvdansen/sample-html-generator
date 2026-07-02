@@ -468,3 +468,70 @@ def test_player_js_inlined_and_offline_safe() -> None:
     # No server / live-reload / fetch surface leaks into the artifact.
     assert "EventSource" not in html
     assert "fetch(" not in html
+
+
+# ── Phase 4 render-layer foundations (RUN-02 / RUN-04) ──────────────────────
+
+
+def test_served_resolver_url() -> None:
+    """RUN-02: ServedResolver maps a Sample id to a ``/media/<url-encoded posix
+    id>`` URL — forward slashes preserved, each segment url-encoded (spaces →
+    %20) via ``quote(s.id, safe="/")``. This is the P4 served-resolver seam
+    swapped behind the same AssetResolver Protocol as RelativeResolver."""
+    from sample_grid.render.resolver import ServedResolver
+
+    s = _sample("a lake/step_600.mp4", step=600, prompt="a lake", media_type="video")
+    assert ServedResolver().url(s) == "/media/a%20lake/step_600.mp4"
+
+
+def test_live_flag_gates_eventsource() -> None:
+    """RUN-02: render(live=True) injects the LIVE_ENDPOINT constant that the live
+    layer's EventSource wiring keys on; render(live=False) emits no live wiring
+    (the Phase-1/3 file://-safe artifact stays server-free)."""
+    grid = GridModel(
+        row_values=[100],
+        col_values=["p1"],
+        cells=[[Cell(CellState.MISSING)]],
+        cell_ar=(16, 9),
+    )
+    live_html = render(grid, RelativeResolver(), live=True)
+    static_html = render(grid, RelativeResolver(), live=False)
+
+    assert "LIVE_ENDPOINT" in live_html
+    assert "LIVE_ENDPOINT" not in static_html
+
+
+def test_cell_fragment_matches_full_render() -> None:
+    """RUN-04 anti-drift: a single cell rendered in isolation via
+    render_cell_fragment is byte-identical (as a contiguous substring) to that
+    same cell inside the full-page render — proving both draw from the one shared
+    cell.j2 macro so a live-patched cell can never drift from a full render."""
+    from sample_grid.render.renderer import render_cell_fragment
+
+    grid = GridModel(
+        row_values=[100],
+        col_values=["p1", "p2"],
+        cells=[[
+            Cell(
+                CellState.POPULATED,
+                sample=_sample("p1/clip.mp4", step=100, prompt="p1", media_type="video"),
+            ),
+            Cell(
+                CellState.POPULATED,
+                sample=_sample("p2/pic.png", step=100, prompt="p2", media_type="image"),
+            ),
+        ]],
+        cell_ar=(16, 9),
+    )
+    full = render(grid, RelativeResolver())
+    resolver = RelativeResolver()
+
+    # POPULATED video cell at (0, 0).
+    video_item = {"prompt": "p1", "cell": grid.cells[0][0]}
+    video_frag = render_cell_fragment(video_item, 0, 0, 100, "p1", resolver)
+    assert video_frag.strip() in full
+
+    # POPULATED image cell at (0, 1).
+    image_item = {"prompt": "p2", "cell": grid.cells[0][1]}
+    image_frag = render_cell_fragment(image_item, 0, 1, 100, "p2", resolver)
+    assert image_frag.strip() in full
