@@ -51,6 +51,17 @@
        2+ cell comparison is never silently out-of-phase. Static literal — no
        user data, nothing to escape. #}
     <span class="sync-badge" aria-hidden="true">SYNCED</span>
+    {# Global playback controls (MEDIA-04 / D-09). These are plain ACTION buttons
+       (NOT data-set toggles): a PROMINENT Pause-all calms the whole grid back to
+       frozen comparison frames (in Synced mode all snap to the exact master
+       frame), and a SECONDARY Play-visible starts ONLY the cells currently in
+       the viewport, honoring the concurrent-play cap — never a whole-grid
+       play-everything control (D-09 calm default). grid.js wires these by id.
+       Static literals — no user data, nothing to escape. #}
+    <div class="toggle-group" role="group" aria-label="Playback">
+      <button type="button" class="control-btn control-btn--primary" id="pause-all">Pause all</button>
+      <button type="button" class="control-btn" id="play-visible">Play visible</button>
+    </div>
   </div>
 
   {# In-page seed-variance marker (D-09). Fired by build_grid's `seed_varies`,

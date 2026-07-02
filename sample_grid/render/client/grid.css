@@ -192,6 +192,59 @@ body {
   display: inline-block;
 }
 
+/* ── Global playback controls (MEDIA-04 / D-09) ──────────────────────────── */
+/* Plain ACTION buttons (not data-set toggles). They copy the .toggle-seg sizing
+   (11px, --radius-control, 4px 8px) and its :focus-visible ring, but carry a
+   resting NEUTRAL surface — per UI-SPEC, --accent is reserved for :focus-visible
+   / :active press, never a resting fill. Pause-all (.control-btn--primary) is
+   visually weightier than the secondary Play-visible. */
+.control-btn {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.4;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+/* Pause-all is the prominent control: a filled neutral surface + solid text +
+   a defined border make it read weightier than the secondary Play-visible.
+   Still NO --accent at rest (UI-SPEC) — accent only lands on focus/active. */
+.control-btn--primary {
+  background: var(--header-surface);
+  color: var(--text);
+  border: 1px solid var(--text-muted);
+  font-weight: var(--weight-semibold);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .control-btn {
+    transition: background var(--transition), color var(--transition),
+      border-color var(--transition);
+  }
+}
+
+.control-btn:hover {
+  color: var(--text);
+  background: var(--hairline);
+}
+
+/* --accent lands ONLY on active press (and the focus ring below) — never as a
+   resting fill (UI-SPEC Color: accent for interactive affordance only). */
+.control-btn:active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-color: var(--accent);
+}
+
+.control-btn:focus-visible {
+  outline: var(--ring-width) solid var(--focus-ring);
+  outline-offset: var(--ring-offset);
+}
+
 /* ── Scroll container + grid lattice ─────────────────────────────────────── */
 /* Exactly one scroll container owns overflow (sticky correctness, Pitfall 3). */
 .grid-scroll {

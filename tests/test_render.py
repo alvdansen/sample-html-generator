@@ -272,6 +272,34 @@ def test_sync_toggle_present() -> None:
     assert 'data-sync="independent"' in html
 
 
+def test_global_controls_present() -> None:
+    """MEDIA-04/D-09: the control bar carries a PROMINENT Pause-all plus a
+    SECONDARY Play-visible plain action button (exact copy), and NO whole-grid
+    play-everything control. Pause-all is the weightier ``--primary`` variant."""
+    grid = GridModel(
+        row_values=[100],
+        col_values=["p1"],
+        cells=[[Cell(CellState.MISSING)]],
+        cell_ar=(16, 9),
+    )
+    html = render(grid, RelativeResolver())
+
+    # Both action controls render with stable ids + exact UI-SPEC copy.
+    assert 'id="pause-all"' in html
+    assert 'id="play-visible"' in html
+    assert "Pause all" in html
+    assert "Play visible" in html
+    # They are .control-btn action buttons (not data-set toggles).
+    assert 'class="control-btn' in html
+    assert 'data-set="pause' not in html
+    assert 'data-set="play' not in html
+    # Pause-all is the prominent (weightier) primary control.
+    assert "control-btn--primary" in html
+    # D-09: NO whole-grid play-everything control exists.
+    assert 'id="play-all"' not in html
+    assert "Play all" not in html
+
+
 def test_click_to_open_anchor() -> None:
     """D-12: every POPULATED cell is an <a target=_blank rel=noopener noreferrer>
     (click-to-open native), while missing/broken placeholders are NOT anchors."""
