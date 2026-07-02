@@ -246,6 +246,32 @@ def test_toggle_js_inlined_offline_safe() -> None:
     assert "LIVE_ENDPOINT" not in html
 
 
+def test_sync_toggle_present() -> None:
+    """MEDIA-03/D-06/D-07: the Sync toggle renders in the control bar with both
+    segments (Independent default · Synced) using the same data-set="key:value"
+    pattern as theme/density, a persistent ``SYNCED`` badge for the D-07
+    visual-obviousness indicator, and ``<html data-sync="independent">`` so the
+    grid defaults to low-friction Independent playback."""
+    grid = GridModel(
+        row_values=[100],
+        col_values=["p1"],
+        cells=[[Cell(CellState.MISSING)]],
+        cell_ar=(16, 9),
+    )
+    html = render(grid, RelativeResolver())
+
+    # Both sync segments render with the reused data-set toggle pattern.
+    assert 'data-set="sync:independent"' in html
+    assert 'data-set="sync:synced"' in html
+    assert html.count('data-set="sync:') == 2
+    # The Sync label + the D-07 SYNCED badge are present.
+    assert ">Sync<" in html
+    assert "sync-badge" in html
+    assert "SYNCED" in html
+    # Default is Independent (baked into <html>).
+    assert 'data-sync="independent"' in html
+
+
 def test_click_to_open_anchor() -> None:
     """D-12: every POPULATED cell is an <a target=_blank rel=noopener noreferrer>
     (click-to-open native), while missing/broken placeholders are NOT anchors."""

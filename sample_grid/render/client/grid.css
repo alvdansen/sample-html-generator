@@ -115,6 +115,7 @@ body {
   gap: 8px;
   padding: 8px;
   background: var(--header-surface);
+  border: 1px solid transparent; /* reserved so the synced accent border (D-07) adds no layout shift */
   border-radius: var(--radius-control);
   box-shadow: 0 2px 8px -2px var(--shadow);
 }
@@ -164,6 +165,31 @@ body {
 .toggle-seg:focus-visible {
   outline: var(--ring-width) solid var(--focus-ring);
   outline-offset: var(--ring-offset);
+}
+
+/* ── Synced active state (D-07 — unmistakable when frame-locked) ──────────── */
+/* The SYNCED badge rides in the toggle-bar but is hidden at rest; it appears
+   only while data-sync="synced", paired with an accent border on the whole bar
+   so a 2+ cell comparison is never silently out-of-phase. This is the ONE
+   sanctioned new --accent use this phase (UI-SPEC Color). Default resting CSS
+   matches Independent (no border, badge hidden). */
+.sync-badge {
+  display: none;
+  font-size: 11px;
+  line-height: 1.4;
+  align-self: center;
+  padding: 4px 8px;
+  border-radius: var(--radius-control);
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
+
+[data-sync="synced"] .toggle-bar {
+  border: 1px solid var(--accent);
+}
+
+[data-sync="synced"] .sync-badge {
+  display: inline-block;
 }
 
 /* ── Scroll container + grid lattice ─────────────────────────────────────── */

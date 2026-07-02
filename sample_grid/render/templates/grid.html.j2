@@ -36,6 +36,21 @@
       <button type="button" class="toggle-seg" data-set="density:comfortable" aria-pressed="true">Comfortable</button>
       <button type="button" class="toggle-seg" data-set="density:compact" aria-pressed="false">Compact</button>
     </div>
+    {# Sync toggle (D-06 / MEDIA-03): same data-set="key:value" + aria-pressed
+       shape as theme/density; grid.js reuses the identical [data-set] loop and
+       persists to localStorage. Default is Independent (baked into <html
+       data-sync="independent">) so the grid stays low-friction until the user
+       opts into frame-locked comparison. #}
+    <div class="toggle-group" role="group" aria-label="Sync">
+      <span class="toggle-label">Sync</span>
+      <button type="button" class="toggle-seg" data-set="sync:independent" aria-pressed="true">Independent</button>
+      <button type="button" class="toggle-seg" data-set="sync:synced" aria-pressed="false">Synced</button>
+    </div>
+    {# D-07 visual-obviousness: a persistent SYNCED badge that CSS reveals ONLY
+       while data-sync="synced" (paired with the accent border on this bar), so a
+       2+ cell comparison is never silently out-of-phase. Static literal — no
+       user data, nothing to escape. #}
+    <span class="sync-badge" aria-hidden="true">SYNCED</span>
   </div>
 
   {# In-page seed-variance marker (D-09). Fired by build_grid's `seed_varies`,
