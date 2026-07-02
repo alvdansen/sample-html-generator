@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 from typing import Protocol, runtime_checkable
+from urllib.parse import quote
 
 from sample_grid.core.model import Sample
 from sample_grid.util.paths import to_posix
@@ -36,3 +37,21 @@ class RelativeResolver:
     def url(self, s: Sample) -> str:
         rel = to_posix(PurePosixPath(self.assets_dir) / s.id)
         return "./" + rel
+
+
+class ServedResolver:
+    """Live-server resolver (P4): maps a Sample to a ``/media/<id>`` URL.
+
+    Keyed on the sample's posix-relative ``id`` EXACTLY like ``RelativeResolver``
+    (so ``render`` stays resolver-agnostic — proven by
+    ``test_renderer_resolver_agnostic``). The local server mounts the output
+    folder under ``/media`` and this resolver points every cell at it.
+
+    ``quote(s.id, safe="/")`` keeps the forward slashes as path separators while
+    url-encoding each segment (spaces → ``%20``, etc.), so a prompt folder like
+    ``"a lake"`` yields ``/media/a%20lake/...`` — a valid URL the browser can
+    request without ambiguity.
+    """
+
+    def url(self, s: Sample) -> str:
+        return "/media/" + quote(s.id, safe="/")

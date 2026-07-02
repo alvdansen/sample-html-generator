@@ -22,6 +22,25 @@ _TEMPLATES_DIR = _MODULE_DIR / "templates"
 _CLIENT_DIR = _MODULE_DIR / "client"
 
 
+def _build_env() -> Environment:
+    """Build the render Environment with autoescape UNCONDITIONALLY ON.
+
+    This is the ONE place autoescape is configured (T-1-01 / T-4-02). The
+    full-page ``render`` AND every fragment renderer share it, so a live-patched
+    cell/header escapes a prompt/step/filename byte-identically to the full
+    render — a patched fragment can never become an XSS hole the full page isn't.
+
+    autoescape=True is forced (not ``select_autoescape``) because our templates
+    end in ``.j2`` (not ``.html``); the extension heuristic would leave escaping
+    OFF. Verified by tests/test_render.py::test_prompt_html_escaped and the
+    video/header macro paths.
+    """
+    return Environment(
+        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+        autoescape=True,
+    )
+
+
 def _aspect_ratio_css(cell_ar) -> str:
     """Render the detected universal AR as a CSS ``aspect-ratio`` value."""
     if isinstance(cell_ar, tuple):
@@ -42,10 +61,7 @@ def render(
     # so the extension heuristic would leave escaping OFF — a stored-XSS hole for
     # prompt text / filenames (T-1-01). This template only ever emits HTML, so
     # force escaping on. Verified by tests/test_render.py::test_prompt_html_escaped.
-    env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-        autoescape=True,
-    )
+    env = _build_env()
     template = env.get_template("grid.html.j2")
 
     # Inline the CSS and JS so the artifact is self-contained from file:// (no
@@ -88,3 +104,64 @@ def render(
         MISSING=CellState.MISSING,
         BROKEN=CellState.BROKEN,
     )
+
+
+def render_cell_fragment(
+    item,
+    row_i: int,
+    c_i: int,
+    step,
+    prompt,
+    resolver: AssetResolver,
+) -> str:
+    """Render exactly ONE grid cell from the shared ``cell.j2`` ``cell`` macro.
+
+    RUN-04 anti-drift: this draws from the SAME macro the full-page render loops
+    over, so a live-patched cell is structurally identical to a full render (its
+    output is a contiguous substring of the full page — proven by
+    ``test_cell_fragment_matches_full_render``). Rendered under autoescape=True
+    (via ``_build_env``), so prompt/step escape exactly as in the full render;
+    NEVER build a cell with an f-string (T-4-02).
+
+    ``item`` has the same shape the full template consumes (``item.cell``,
+    ``item.prompt``), so the macro reads ``item.cell.state`` / ``.sample`` /
+    ``.ar_mismatch`` / ``.has_alternates`` / ``.alternate_seeds`` unchanged.
+    """
+    cell_macro = _build_env().get_template("cell.j2").module.cell
+    return str(
+        cell_macro(
+            item,
+            row_i,
+            c_i,
+            step,
+            prompt,
+            resolver.url,
+            CellState.POPULATED,
+            CellState.MISSING,
+            CellState.BROKEN,
+        )
+    )
+
+
+def render_row_header_fragment(step, row_i: int) -> str:
+    """Render exactly ONE row (step) header from the shared ``cell.j2``
+    ``row_header`` macro under autoescape=True.
+
+    This is the ``header_html`` source 04-03's ``insert_row`` patch broadcasts
+    when a new step row lands live. Same macro + same autoescaped environment as
+    the full render, so a live-inserted header never drifts from a full render.
+    """
+    row_header = _build_env().get_template("cell.j2").module.row_header
+    return str(row_header(step, row_i))
+
+
+def render_col_header_fragment(prompt, c_i: int) -> str:
+    """Render exactly ONE column (prompt) header from the shared ``cell.j2``
+    ``col_header`` macro under autoescape=True.
+
+    This is the ``header_html`` source 04-03's ``insert_col`` patch broadcasts
+    when a new prompt column lands live. Same macro + same autoescaped
+    environment as the full render (T-4-02).
+    """
+    col_header = _build_env().get_template("cell.j2").module.col_header
+    return str(col_header(prompt, c_i))
