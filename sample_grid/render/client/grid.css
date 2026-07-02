@@ -7,8 +7,10 @@
 
 /* ── Static tokens (theme/density-independent) ───────────────────────────── */
 :root {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", monospace;
+  /* Direction B — Space Grotesk (UI) + JetBrains Mono (axis/data), embedded via
+     fonts.css (base64, file://-safe). System stack stays as the fallback. */
+  --font-sans: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", monospace;
   --weight-regular: 400;
   --weight-semibold: 600;
   --radius-cell: 3px;
@@ -26,12 +28,14 @@
 /* ── Theme tokens — dark is the default eval ground (D-01) ────────────────── */
 :root,
 [data-theme="dark"] {
-  --ground: #0c0c0e;                /* page field — one tonal step above the media well */
-  --header-surface: #16181b;        /* sticky headers + toolbar chrome        */
-  --cell-surface: #0a0a0b;          /* media well: darkest layer, so the SAMPLE is the brightest thing on screen */
-  --surface-hover: #202226;         /* raised surface on hover / crosshair emphasis */
-  --text: #e6e8eb;
-  --text-muted: #9aa0a6;
+  /* Direction B — warm charcoal eval ground; the media well is the darkest
+     layer so the SAMPLE is the brightest thing on screen. */
+  --ground: #0d0c0b;                /* warm near-black page field             */
+  --header-surface: #1a1816;        /* sticky headers + toolbar chrome        */
+  --cell-surface: #0a0908;          /* media well: darkest, warm near-black   */
+  --surface-hover: #24211d;         /* raised surface on hover / crosshair emphasis */
+  --text: #ece8e3;                  /* warm off-white                          */
+  --text-muted: #a49c92;
   --text-faint: rgba(255, 255, 255, 0.5);   /* tertiary hints — kept ≥ ~5:1 for small text */
   --hairline: rgba(255, 255, 255, 0.07);
   --hairline-strong: rgba(255, 255, 255, 0.22);  /* brightened cell edge on hover / crosshair arm */
@@ -39,9 +43,9 @@
   --missing-label: #5c636b;         /* faint em-dash + coordinate caption     */
   --broken-accent: #e0a458;         /* warm amber border + ⚠ glyph (status)  */
   --broken-fill: rgba(224, 164, 88, 0.07);  /* subtle amber wash behind broken */
-  --accent: #4f93ce;                /* interactive affordance ONLY (D-01) — kept: a distinctive steel, not the generic SaaS indigo */
-  --accent-contrast: #0a0a0b;
-  --focus-ring: #6db0ec;
+  --accent: #7cc39a;                /* interactive affordance ONLY (D-01) — sage green, distinct from the amber status hue */
+  --accent-contrast: #0b1510;       /* dark green-black text on the sage accent fill */
+  --focus-ring: #a6d4b0;            /* light sage ring, clears 3:1 on the dark ground */
   --shadow: rgba(0, 0, 0, 0.55);    /* drop shadow under sticky headers       */
 }
 
@@ -61,9 +65,9 @@
   --missing-label: #9aa0a6;
   --broken-accent: #b9701f;
   --broken-fill: rgba(185, 112, 31, 0.08);
-  --accent: #2f6fb0;
+  --accent: #3f8a63;                /* sage, darkened for contrast on the light ground */
   --accent-contrast: #ffffff;
-  --focus-ring: #2f6fb0;
+  --focus-ring: #3f8a63;
   --shadow: rgba(0, 0, 0, 0.18);
 }
 

@@ -52,7 +52,12 @@ def render(
     # fetch). grid.js is the ONLY client JS in P1: a vanilla theme/density toggle
     # + sticky-shadow cue, deliberately free of any live-reload / server wiring
     # (live is always False here; P4 adds the served path with no signature change).
-    css = (_CLIENT_DIR / "grid.css").read_text(encoding="utf-8")
+    # fonts.css carries the embedded (base64) webfaces; prepend it so the
+    # @font-face rules are defined before grid.css references them via --font-*.
+    # Both are static, trusted assets inlined into the single-file artifact — no
+    # network fetch, preserving the file:// offline guarantee.
+    fonts_css = (_CLIENT_DIR / "fonts.css").read_text(encoding="utf-8")
+    css = fonts_css + "\n" + (_CLIENT_DIR / "grid.css").read_text(encoding="utf-8")
     js = (_CLIENT_DIR / "grid.js").read_text(encoding="utf-8")
 
     # Prezip the dense lattice into (step, [(prompt, cell), ...]) rows so the
