@@ -155,3 +155,125 @@ def test_relative_src_is_posix(dense_sample_folder: Path, tmp_path: Path) -> Non
     assert srcs, "expected at least one src attribute"
     assert all("\\" not in s for s in srcs)
     assert any(s.startswith("./assets/") for s in srcs)
+
+
+# ---------------------------------------------------------------------------
+# Wave-0 inline-mode + guardrail tests (Plan 02 / SC-3). RED until Task 2 lands
+# ``InlineResolver`` + the ``--inline`` / ``--max-inline-mb`` guardrail. The
+# folder bundle stays the DEFAULT; ``--inline`` is an opt-in single-file base64
+# mode limited to images / tiny grids — video or oversized totals degrade back
+# to the folder bundle with a printed warning (never base64 video).
+# ---------------------------------------------------------------------------
+
+
+def _freeze_args(folder: Path, out: Path, *extra: str):
+    """Invoke ``grid freeze <folder> -o <out> --no-open`` plus ``extra`` flags."""
+    from sample_grid.cli.main import app
+
+    return runner.invoke(
+        app, ["freeze", str(folder), "-o", str(out), "--no-open", *extra]
+    )
+
+
+def test_inline_resolver_data_uri(dense_sample_folder: Path) -> None:
+    """SC-3 (unit): ``InlineResolver.url`` returns a round-tripping data: URI.
+
+    Point a ``Sample`` at a real fixture PNG; the resolver must emit a
+    ``data:image/png;base64,<payload>`` URI whose base64 payload decodes back to
+    the exact on-disk file bytes (base64 sidesteps paths entirely — no ``\\`` leak).
+    """
+    import base64
+
+    from sample_grid.core.model import Sample
+    from sample_grid.render.resolver import InlineResolver
+
+    png = dense_sample_folder / "a serene lake" / "step_200.png"
+    sample = Sample(
+        id="a serene lake/step_200.png",
+        path=png,
+        media_type="image",
+        dims={"step": 200, "prompt": "a serene lake"},
+    )
+
+    uri = InlineResolver().url(sample)
+
+    assert uri.startswith("data:image/png;base64,")
+    payload = uri.split(",", 1)[1]
+    assert base64.b64decode(payload) == png.read_bytes()
+
+
+def test_freeze_inline_images_only(dense_sample_folder: Path, tmp_path: Path) -> None:
+    """SC-3: ``freeze --inline`` on an image grid emits data: URIs and NO assets/.
+
+    Single-file base64 inlines every cell straight into ``src`` and copies nothing,
+    so the frozen page must carry ``data:image/`` URIs and there must be NO relative
+    ``assets/`` directory on disk (the whole point of the single-file mode).
+    """
+    out = tmp_path / "out"
+    result = _freeze_args(dense_sample_folder, out, "--inline")
+
+    assert result.exit_code == 0, result.output
+
+    html = (out / "grid-output" / "index.html").read_text(encoding="utf-8")
+    assert 'src="data:image/' in html, "expected inlined base64 image data: URIs"
+
+    assert not (out / "grid-output" / "assets").exists(), (
+        "inline mode must copy no assets/ bundle"
+    )
+
+
+def test_freeze_inline_refuses_video(mixed_media_folder: Path, tmp_path: Path) -> None:
+    """SC-3 (media guardrail): ``--inline`` on a video grid degrades to the bundle.
+
+    base64 video is unreliable (iOS Safari, ~33% inflation, ``#t=`` fragments) so
+    the guardrail fires on ANY video cell: NO ``data:video/`` payload is emitted, a
+    relative ``./assets/`` folder bundle is written INSTEAD, and a warning mentioning
+    video + the folder-bundle fallback is printed.
+    """
+    out = tmp_path / "out"
+    result = _freeze_args(mixed_media_folder, out, "--inline")
+
+    assert result.exit_code == 0, result.output
+
+    html = (out / "grid-output" / "index.html").read_text(encoding="utf-8")
+    assert "data:video/" not in html, "must NEVER inline base64 video"
+
+    assert (out / "grid-output" / "assets").is_dir(), (
+        "video grid must degrade to the folder bundle"
+    )
+    assert "./assets/" in html, "degraded page must reference the relative bundle"
+
+    warning = result.output.lower()
+    assert "video" in warning
+    assert "folder bundle" in warning
+
+
+def test_freeze_inline_refuses_oversized(
+    dense_sample_folder: Path, tmp_path: Path
+) -> None:
+    """SC-3 (size guardrail): ``--inline`` over ``--max-inline-mb`` degrades to bundle.
+
+    Exercises the SIZE trigger independently of the media trigger — an images-only
+    grid with a tiny ``--max-inline-mb`` override must fire the guardrail on total
+    bytes (not media type): NO ``data:image/`` payload, a relative ``./assets/``
+    bundle written INSTEAD, and a warning mentioning size / --max-inline-mb + the
+    folder-bundle fallback. Closes the untested size-threshold branch of SC-3.
+    """
+    out = tmp_path / "out"
+    # The 6 dense fixture PNGs total ~600 bytes; 0.0001 MB (~105 bytes) forces the
+    # size branch to trip without any video cell involved.
+    result = _freeze_args(dense_sample_folder, out, "--inline", "--max-inline-mb", "0.0001")
+
+    assert result.exit_code == 0, result.output
+
+    html = (out / "grid-output" / "index.html").read_text(encoding="utf-8")
+    assert "data:image/" not in html, "oversized grid must NOT inline base64"
+
+    assert (out / "grid-output" / "assets").is_dir(), (
+        "oversized grid must degrade to the folder bundle"
+    )
+    assert "./assets/" in html, "degraded page must reference the relative bundle"
+
+    warning = result.output.lower()
+    assert ("size" in warning) or ("max-inline-mb" in warning)
+    assert "folder bundle" in warning
