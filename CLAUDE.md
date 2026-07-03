@@ -61,7 +61,7 @@ A video-first comparison grid builder for evaluating generative model samples. Y
 - Base64 inflates payload by **~33%**.
 - **iOS Safari is unreliable** with base64 `<video>` (can fail silently) — a known gotcha.
 - Base64 is *per-resource* under the limit, but **total page weight** is the real constraint: 30 cells × 5 MB ≈ 150 MB → ~200 MB single file = slow to parse/load. Add a configurable **size threshold** (e.g. warn/auto-switch to asset-bundle mode above ~50–100 MB total).
-- Default `freeze` = single-file base64 (matches "self-contained standalone `.html`" requirement literally).
+- Default `freeze` = single-file base64 (matches "self-contained standalone `.html`" requirement literally). **[Decision 2026-07-03 — superseded for Phase 5]** ROADMAP Phase 5 SC3 reverses this polarity: the **folder bundle is the default** and single-file base64 is the **opt-in `--inline` flag** (with a size guardrail, images/tiny grids only). Rationale: video-heavy base64 pages blow the ~50–100 MB page-weight ceiling and are unreliable on iOS Safari, so the safe default for this video-first tool is the relative-asset folder bundle. This decision-log entry keeps the original recommendation for history while recording that the shipped default is folder-bundle.
 - `freeze --assets external` = `index.html` + `assets/` bundle; still `file://`-openable, far lighter, and the correct format to commit to the **HF Static Space** (keep sample videos small to stay under the Space LFS limit).
 - Relative-path `<video>` plays fine from `file://`; base64 always plays from `file://`. (Note: `fetch()`/XHR from `file://` is blocked in Chrome — so the grid data must be inlined into the page, not loaded via JS fetch.)
 ## Hugging Face Space: which SDK (decision detail)
