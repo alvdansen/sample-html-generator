@@ -6,9 +6,13 @@ result (D-07). All grid logic lives in the pure core/render layers.
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import html
 import shutil
+import socket
 import webbrowser
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import typer
@@ -21,8 +25,16 @@ from sample_grid.core.parse.sidecar import SidecarExtractor
 from sample_grid.core.parse.subfolder import SubfolderExtractor
 from sample_grid.core.parse.template import TemplateParser
 from sample_grid.core.scan import Scanner
-from sample_grid.render.renderer import render
-from sample_grid.render.resolver import RelativeResolver
+from sample_grid.live.diff import diff
+from sample_grid.live.server import Broadcaster, build_app
+from sample_grid.live.watcher import watch_loop
+from sample_grid.render.renderer import (
+    render,
+    render_cell_fragment,
+    render_col_header_fragment,
+    render_row_header_fragment,
+)
+from sample_grid.render.resolver import RelativeResolver, ServedResolver
 
 app = typer.Typer(
     add_completion=False,
@@ -248,6 +260,265 @@ def detect(
 
     # Exit BEFORE any render / asset copy (mirror build's empty-state early exit).
     raise typer.Exit(0)
+
+
+def _free_port(start: int, host: str = "127.0.0.1", tries: int = 100) -> int:
+    """Return the first bindable port at or after ``start`` on ``host``.
+
+    Probes ``start``, ``start+1``, … by attempting a throwaway bind; the first that
+    succeeds is free. This is the RESEARCH ``--port`` fallback (default 8000, next
+    free on ``OSError``) done up-front so Uvicorn always binds a port it can own.
+    """
+    for offset in range(tries):
+        candidate = start + offset
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind((host, candidate))
+                return candidate
+            except OSError:
+                continue
+    return start
+
+
+def _patch_envelope(patch, grid, resolver) -> dict:
+    """Render ``patch``'s HTML from the NEW ``grid`` into the CANONICAL SSE envelope.
+
+    The field names are the cross-plan contract 04-04's ``applyPatch`` reads
+    EXACTLY (RESEARCH §Patch envelope):
+
+    * ``replace_cell`` → ``{op, r, c, html}`` — ONLY this op carries a bare ``html``;
+    * ``insert_row``   → ``{op, index, step, header_html, cells:[html, …]}``;
+    * ``insert_col``   → ``{op, index, prompt, n_cols, header_html,
+      cells:[{r, html}, …]}``.
+
+    Header markup NEVER folds into a bare ``html`` key on an insert op — dropping
+    that would silently strip a new row/column header on the client. Every HTML
+    string comes from the 04-01 fragment renderers (autoescape ON, T-4-02); this
+    function never f-strings cell/header markup.
+    """
+    if patch.op == "replace_cell":
+        r, c = patch.r, patch.c
+        cell = grid.cells[r][c]
+        step = grid.row_values[r]
+        prompt = grid.col_values[c]
+        item = {"cell": cell, "prompt": prompt}
+        return {
+            "op": "replace_cell",
+            "r": r,
+            "c": c,
+            "html": render_cell_fragment(item, r, c, step, prompt, resolver),
+        }
+
+    if patch.op == "insert_row":
+        index = patch.index
+        step = patch.step
+        cells = []
+        for c, prompt in enumerate(grid.col_values):
+            item = {"cell": grid.cells[index][c], "prompt": prompt}
+            cells.append(render_cell_fragment(item, index, c, step, prompt, resolver))
+        return {
+            "op": "insert_row",
+            "index": index,
+            "step": step,
+            "header_html": render_row_header_fragment(step, index),
+            "cells": cells,
+        }
+
+    if patch.op == "insert_col":
+        index = patch.index
+        prompt = patch.prompt
+        cells = []
+        for r, step in enumerate(grid.row_values):
+            item = {"cell": grid.cells[r][index], "prompt": prompt}
+            cells.append(
+                {"r": r, "html": render_cell_fragment(item, r, index, step, prompt, resolver)}
+            )
+        return {
+            "op": "insert_col",
+            "index": index,
+            "prompt": prompt,
+            "n_cols": patch.n_cols,
+            "header_html": render_col_header_fragment(prompt, index),
+            "cells": cells,
+        }
+
+    raise ValueError(f"unknown patch op: {patch.op!r}")
+
+
+@app.command()
+def watch(
+    folder: Path = typer.Argument(..., help="Folder of model samples to watch live."),
+    output: Path = typer.Option(
+        Path("."),
+        "-o",
+        "--output",
+        help="Output base directory; the grid is written to <output>/grid-output/.",
+    ),
+    no_open: bool = typer.Option(
+        False, "--no-open", help="Do not open the result in a browser (CI/scripts)."
+    ),
+    cell_size: int = typer.Option(
+        240, "--cell-size", help="Cell width in px (default Comfortable)."
+    ),
+    template: str = typer.Option(
+        None,
+        "--template",
+        help="Override auto-detect: {prompt}/step_{step}_seed{seed}.mp4",
+    ),
+    port: int = typer.Option(
+        8000, "--port", help="Localhost port (falls back to the next free port)."
+    ),
+    settle_ms: int = typer.Option(
+        1000, "--settle-ms", help="Quiet window a new file must be size-stable for."
+    ),
+    poll_ms: int = typer.Option(
+        500, "--poll-ms", help="How often the settle gate re-stats a pending file."
+    ),
+    once: bool = typer.Option(
+        False,
+        "--once",
+        hidden=True,
+        help="Render current state, write the artifact, and exit (no serve loop).",
+    ),
+) -> None:
+    """Watch FOLDER and serve a live Steps × Prompts grid on localhost (RUN-02).
+
+    Renders the folder's current state immediately, writes the same
+    ``<output>/grid-output/index.html`` + ``assets/`` layout ``build`` produces
+    (D-04/D-05), and auto-opens the browser (suppress with --no-open). It then owns
+    a localhost-only Uvicorn loop: an ``awatch`` task in the app lifespan re-scans →
+    diffs → renders fragment(s) → broadcasts each settled batch over SSE, without a
+    page reload. On Ctrl-C the last static artifact is left on disk and the ``freeze``
+    next-step is printed (D-05/D-06 — Phase 4 names ``freeze`` only, no export here).
+    """
+    out_dir = output / GRID_OUTPUT_DIRNAME
+    out_dir.mkdir(parents=True, exist_ok=True)
+    index_path = out_dir / "index.html"
+    resolver = ServedResolver()
+
+    def _scan_build():
+        """Re-run the shared detect path → build the grid (one path with build)."""
+        index, _report = _auto_parse(folder, template=template)
+        return build_grid(index, GridConfig()) if index else None
+
+    def _copy_assets(grid) -> None:
+        """Copy populated samples into the build-layout assets bundle (D-05 freeze)."""
+        for row in grid.cells:
+            for cell in row:
+                if cell.state == CellState.POPULATED and cell.sample is not None:
+                    dest = out_dir / ASSETS_DIRNAME / Path(cell.sample.id)
+                    if not dest.exists():
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(cell.sample.path, dest)
+
+    def _render_page(grid) -> str:
+        """The SERVED live page (ServedResolver + live=True); empty-state when bare."""
+        if grid is None or not grid.row_values:
+            return _empty_state_html(folder)
+        return render(grid, resolver, live=True, cell_size_px=cell_size)
+
+    # (D-04) Render current state immediately + write the build-layout artifact.
+    current = _scan_build()
+    if current is not None:
+        _copy_assets(current)
+    else:
+        # Start empty: hold an empty grid so a later diff is uniform (insert ops).
+        current = build_grid([], GridConfig())
+    page_html = _render_page(current)
+    index_path.write_text(page_html, encoding="utf-8")
+    typer.echo(f"Watching {folder} — serving {index_path}")
+
+    if once:
+        # Hidden non-blocking hook (tests/CI): current state rendered, artifact
+        # written, return WITHOUT entering the blocking serve loop.
+        return
+
+    state = {"grid": current, "html": page_html}
+    broadcaster = Broadcaster()
+
+    async def on_ready() -> None:
+        """Settled-batch callback: re-scan → diff → render fragments → broadcast."""
+        new_grid = _scan_build()
+        if new_grid is None:
+            return
+        _copy_assets(new_grid)
+        patches = diff(state["grid"], new_grid)
+        for patch in patches:
+            await broadcaster.broadcast(_patch_envelope(patch, new_grid, resolver))
+        state["grid"] = new_grid
+        # Refresh the served page + on-disk artifact so a fresh GET / and the D-05
+        # freeze handoff always reflect the latest grid.
+        state["html"] = _render_page(new_grid)
+        index_path.write_text(state["html"], encoding="utf-8")
+
+    served_app = build_app(
+        root=folder,
+        page_html_getter=lambda: state["html"],
+        broadcaster=broadcaster,
+    )
+
+    stop_event = asyncio.Event()
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        # Launch the awatch task on startup; stop + drain it on shutdown (D-05).
+        task = asyncio.create_task(
+            watch_loop(
+                folder,
+                on_ready,
+                stop_event=stop_event,
+                settle_ms=settle_ms,
+                poll_ms=poll_ms,
+            )
+        )
+        try:
+            yield
+        finally:
+            stop_event.set()
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+
+    served_app.router.lifespan_context = lifespan
+
+    # Bind 127.0.0.1 ONLY (never 0.0.0.0) — this serves the user's private folder
+    # (T-4-03). Pick a free port up-front so Uvicorn always binds one it can own.
+    bind_port = _free_port(port)
+    import uvicorn  # local import: keep server deps out of the build/detect path.
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            served_app, host="127.0.0.1", port=bind_port, log_level="warning"
+        )
+    )
+
+    async def _open_when_ready() -> None:
+        while not server.started:
+            await asyncio.sleep(0.05)
+        webbrowser.open(f"http://127.0.0.1:{bind_port}/")
+
+    async def _run() -> None:
+        opener = None if no_open else asyncio.create_task(_open_when_ready())
+        try:
+            await server.serve()
+        finally:
+            if opener is not None:
+                opener.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await opener
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        # Uvicorn normally absorbs SIGINT; belt-and-suspenders so the handoff prints.
+        pass
+
+    # (D-05/D-06) Leave the artifact; print the freeze pointer. Phase 4 names the
+    # freeze command only — it does NOT implement export (Phase 5 owns the bundle).
+    typer.echo(
+        f"Watch stopped. Static grid left at {index_path}. "
+        f"To share it: grid freeze {folder}"
+    )
 
 
 if __name__ == "__main__":
