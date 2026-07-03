@@ -256,6 +256,64 @@ body {
   outline-offset: var(--ring-offset);
 }
 
+/* ── Live-watch cue (Phase 4 / D-02) ─────────────────────────────────────── */
+/* Both the "Live" indicator and the "+N" pill are injected into the toggle-bar
+   by grid.js ONLY when live wiring is active (LIVE_ENDPOINT present). They never
+   exist in the frozen artifact, so these rules simply match nothing there. No
+   new token is introduced — everything reuses the existing palette/sizing. */
+
+/* Quiet connection indicator: neutral muted text, NO accent, NO motion (it is
+   status, not an affordance — UI-SPEC Copywriting "Live" / "Live · reconnecting…"). */
+.live-status {
+  align-self: center;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* "+N new steps →" pill — copies .control-btn sizing (4px 8px, --radius-control)
+   with a NEUTRAL secondary body (--header-surface); accent lives only on the
+   count chip below (UI-SPEC: pill body stays neutral, chip carries accent). */
+.new-pill {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.4;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--header-surface);
+  color: var(--text);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.new-pill:hover {
+  border-color: var(--hairline-strong);
+}
+
+.new-pill:focus-visible {
+  outline: var(--ring-width) solid var(--focus-ring);
+  outline-offset: var(--ring-offset);
+}
+
+/* The count chip mirrors the .sync-badge accent-fill pattern (background accent,
+   accent-contrast text). Mono + tabular-nums so the digit doesn't jitter as N
+   climbs; micro badge sizing reuses the alt-badge ornamental values. */
+.new-pill__chip {
+  padding: 1px 5px;
+  border-radius: var(--radius-cell);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 /* ── Scroll container + grid lattice ─────────────────────────────────────── */
 /* Exactly one scroll container owns overflow (sticky correctness, Pitfall 3). */
 .grid-scroll {
@@ -408,6 +466,24 @@ a.cell:hover {
 @media (prefers-reduced-motion: no-preference) {
   .cell {
     transition: border-color var(--transition);
+  }
+}
+
+/* ── New-arrival ring (Phase 4 / D-02) ───────────────────────────────────── */
+/* A just-patched/inserted cell gains a transient accent OUTLINE ring (grid.js
+   removes .is-new after ~1.5s). An outline adds NO box and NO layout shift, and
+   is drawn outside the border box so the cell's overflow:hidden never clips it;
+   the negative offset tucks it against the media edge as a clean ring. The fade
+   is motion-gated — under reduced motion the ring shows then clears instantly.
+   This is the phase's one sanctioned new --accent use (UI-SPEC Color item 5). */
+.cell.is-new {
+  outline: var(--ring-width) solid var(--accent);
+  outline-offset: calc(-1 * var(--ring-width));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cell.is-new {
+    transition: outline-color var(--transition);
   }
 }
 

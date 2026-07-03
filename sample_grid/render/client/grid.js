@@ -521,6 +521,21 @@
     }
   }
 
+  // markNew(el): the transient per-cell arrival ring (D-02). Adds .is-new (a
+  // short accent OUTLINE ring, motion-gated in grid.css — no new box, no layout
+  // shift) and clears it after ~1.5s. A light in-viewport touch that never moves
+  // the view; off-screen progress the ring can't show is surfaced by the pill.
+  function markNew(el) {
+    if (!el || !el.classList) return;
+    el.classList.add("is-new");
+    setTimeout(function () { el.classList.remove("is-new"); }, 1500);
+  }
+
+  // liveCue: the "+N new steps" pill controller, installed only by the guarded
+  // live module below. Null on the frozen artifact (applyPatch never runs there
+  // anyway), so the insert_row hook is a safe no-op.
+  var liveCue = null;
+
   // applyPatch(p): mutate the CSS-grid DOM in place from ONE canonical patch
   // envelope (the exact shape 04-03 broadcasts over SSE). NEVER location.reload,
   // NEVER constructs cell markup, NEVER re-src's a playing cell. Field-name
@@ -541,6 +556,7 @@
       if (!node) return;
       target.replaceWith(node);
       if (node.matches && node.matches("[data-video]")) registerVideoCell(node);
+      markNew(node);
       return;
     }
 
@@ -560,7 +576,11 @@
         // Repeated insertBefore(_, rowRef) preserves header→cell0→cell1… order.
         gridEl.insertBefore(cnode, rowRef);
         if (cnode.matches && cnode.matches("[data-video]")) registerVideoCell(cnode);
+        markNew(cnode);
       }
+      // Surface a below-the-fold new step in the "+N" pill (no-op when the live
+      // cue is absent — the frozen artifact never reaches this path anyway).
+      if (liveCue) liveCue.notifyRow(header);
       return;
     }
 
@@ -591,18 +611,103 @@
         if (!enode) continue;
         gridEl.insertBefore(enode, refs[k]);
         if (enode.matches && enode.matches("[data-video]")) registerVideoCell(enode);
+        markNew(enode);
       }
       return;
     }
   }
 
-  // Guarded live channel: opens the SSE stream ONLY when the server injected the
-  // endpoint. Absent (build/freeze) → this branch never runs, nothing connects.
+  // Guarded live channel: opens the SSE stream and injects the D-02 cue elements
+  // ONLY when the server injected the endpoint. Absent (build/freeze) → none of
+  // this runs: nothing connects, and NO pill / Live indicator is ever added to
+  // the DOM, so the frozen artifact carries no dead controls (T-4-05).
   var LIVE_ENDPOINT = window.LIVE_ENDPOINT || null;
   if (LIVE_ENDPOINT) {
+    var bar = document.querySelector(".toggle-bar");
+
+    // Quiet "Live" indicator — neutral --text-muted, no accent, no motion. It
+    // reflects the SSE channel: "Live" while open, "Live · reconnecting…" on an
+    // error while the browser auto-reconnects (~3s), back to "Live" on the next
+    // open/message (Research A5: the next re-scan self-heals — no replay code).
+    var liveStatus = document.createElement("span");
+    liveStatus.className = "live-status";
+    liveStatus.textContent = "Live";
+    if (bar) bar.appendChild(liveStatus);
+
+    // "+N new steps →" pill — surfaces BELOW-THE-FOLD arrivals the per-cell ring
+    // can't. Hidden at N=0; a click scrolls to the newest row (opt-in jump that
+    // honors D-01 stay-put — the view NEVER auto-scrolls) and clears the count;
+    // it also clears when the newest row scrolls into view on its own.
+    var pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "new-pill";
+    pill.hidden = true;
+    if (bar) bar.appendChild(pill);
+
+    var pillCount = 0;
+    var newestRow = null; // most-recent below-the-fold insert_row header (jump target)
+
+    var renderPill = function () {
+      if (pillCount <= 0) { pill.hidden = true; pill.textContent = ""; return; }
+      var noun = pillCount === 1 ? "step" : "steps";
+      // The count rides in an accent chip (tabular-nums so the digit doesn't
+      // jitter as N climbs); the pill body itself stays neutral secondary.
+      pill.textContent = "";
+      var chip = document.createElement("span");
+      chip.className = "new-pill__chip";
+      chip.textContent = "+" + pillCount;
+      pill.appendChild(chip);
+      pill.appendChild(document.createTextNode(" new " + noun + " →"));
+      pill.setAttribute("aria-label", "+" + pillCount + " new " + noun + " — jump to newest");
+      pill.hidden = false;
+    };
+
+    var clearPill = function () {
+      pillCount = 0;
+      newestRow = null;
+      renderPill();
+    };
+
+    pill.addEventListener("click", function () {
+      // Opt-in jump — the ONLY place the view ever moves for an arrival.
+      if (newestRow && newestRow.scrollIntoView) {
+        newestRow.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      clearPill();
+    });
+
+    // When the newest row scrolls into view on its own, the pill has done its
+    // job → clear it (we never auto-scrolled to get there).
+    var rowVis = ("IntersectionObserver" in window)
+      ? new IntersectionObserver(function (entries) {
+          for (var i = 0; i < entries.length; i++) {
+            if (entries[i].isIntersecting && entries[i].target === newestRow) clearPill();
+          }
+        }, { threshold: 0 })
+      : null;
+
+    liveCue = {
+      // notifyRow(headerEl): count an arrival ONLY when it lands below the fold —
+      // an in-viewport new row already shows its ring, so counting it would
+      // double-cue. Never moves the view.
+      notifyRow: function (headerEl) {
+        if (!headerEl || !headerEl.getBoundingClientRect) return;
+        var r = headerEl.getBoundingClientRect();
+        var vh = window.innerHeight || document.documentElement.clientHeight;
+        if (r.top >= 0 && r.top < vh) return; // visible → ring already surfaced it
+        pillCount++;
+        newestRow = headerEl;
+        renderPill();
+        if (rowVis) { rowVis.disconnect(); rowVis.observe(headerEl); }
+      }
+    };
+
     var es = new EventSource(LIVE_ENDPOINT);
+    es.onopen = function () { liveStatus.textContent = "Live"; };
     es.onmessage = function (e) {
+      liveStatus.textContent = "Live";
       try { applyPatch(JSON.parse(e.data)); } catch (err) {}
     };
+    es.onerror = function () { liveStatus.textContent = "Live · reconnecting…"; };
   }
 })();
