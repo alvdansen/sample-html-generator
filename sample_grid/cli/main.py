@@ -182,6 +182,83 @@ def build(
 
 
 @app.command()
+def freeze(
+    folder: Path = typer.Argument(..., help="Folder of model samples to freeze."),
+    output: Path = typer.Option(
+        Path("."),
+        "-o",
+        "--output",
+        help="Output base directory; the bundle is written to <output>/grid-output/.",
+    ),
+    no_open: bool = typer.Option(
+        False, "--no-open", help="Do not open the result in a browser (CI/scripts)."
+    ),
+    cell_size: int = typer.Option(
+        240, "--cell-size", help="Cell width in px (default Comfortable)."
+    ),
+    template: str = typer.Option(
+        None,
+        "--template",
+        help="Override auto-detect: {prompt}/step_{step}_seed{seed}.mp4",
+    ),
+) -> None:
+    """Freeze FOLDER into a self-contained standalone bundle (EXPORT-01/EXPORT-02).
+
+    Freeze is the offline-artifact sibling of ``watch``: it re-parses the same
+    folder (one detect path with ``build``/``detect``/``watch``) and emits the
+    ``build`` output layout — ``<output>/grid-output/index.html`` + a relative
+    ``assets/`` bundle — rendered with ``live=False`` via ``RelativeResolver``. The
+    result opens straight from ``file://`` with NO server: ``live=False`` strips the
+    only server-coupled markup (the ``LIVE_ENDPOINT`` injection), so the frozen page
+    is the live grid MINUS exactly the live-reload wiring (EXPORT-02). This is the
+    command the ``watch`` handoff prints (``grid freeze <folder>``).
+
+    The whole export reuses the proven render seam — no freeze-specific rendering,
+    template, or JS. It swaps only the (already relative) resolver.
+    """
+    out_dir = output / GRID_OUTPUT_DIRNAME
+    out_dir.mkdir(parents=True, exist_ok=True)
+    index_path = out_dir / "index.html"
+
+    # Same shared detect path build/detect/watch use, so freeze can never disagree
+    # with them on what was found. The report is discarded (offline artifact, no
+    # terminal eval-integrity output — mirror build's D-02 silence).
+    index, _report = _auto_parse(folder, template=template)
+
+    # Empty-state early-exit BEFORE any copy: never emit a silent content-free
+    # bundle, and never create an assets/ folder for a grid with no samples.
+    if not index:
+        message = (
+            "No samples found. Point freeze at a folder containing "
+            f".png, .jpg, or .webp files. Looked in: {folder}"
+        )
+        index_path.write_text(_empty_state_html(folder), encoding="utf-8")
+        typer.echo(message, err=True)
+        raise typer.Exit(0)
+
+    grid = build_grid(index, GridConfig())
+
+    # Copy each populated sample into the relative bundle, keyed on its posix
+    # ``sample.id`` so identical basenames across prompts never collide. ``dest`` is
+    # built with pathlib (never string concat) and ``sample.id`` is scanner-confined,
+    # so no ``..`` can traverse out of assets/ (T-5-01).
+    resolver = RelativeResolver(assets_dir=ASSETS_DIRNAME)
+    for row in grid.cells:
+        for cell in row:
+            if cell.state == CellState.POPULATED and cell.sample is not None:
+                dest = out_dir / ASSETS_DIRNAME / Path(cell.sample.id)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(cell.sample.path, dest)
+
+    html_str = render(grid, resolver, live=False, cell_size_px=cell_size)
+    index_path.write_text(html_str, encoding="utf-8")
+
+    typer.echo(f"Wrote {index_path}")
+    if not no_open:
+        webbrowser.open(index_path.resolve().as_uri())
+
+
+@app.command()
 def detect(
     folder: Path = typer.Argument(..., help="Folder of model samples to inspect."),
     template: str = typer.Option(
