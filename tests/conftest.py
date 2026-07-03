@@ -59,6 +59,65 @@ def _copy_fixture(src: Path, dest: Path) -> None:
     _write_bytes(dest, src.read_bytes())
 
 
+# ---------------------------------------------------------------------------
+# Settle-gate fixture (Phase 4 / RUN-03 · D-03). A mid-encode write only ever
+# grows and then stops; the watcher's wait-for-stable-size gate must withhold a
+# still-growing file and admit a stabilised one. ``growing_file`` writes a real
+# on-disk file in size-increasing chunks (mirrors ``_write_bytes``) so a settle
+# test can poll its size — leave it stable to be admitted, or call ``.grow()`` to
+# simulate the encoder still writing.
+# ---------------------------------------------------------------------------
+
+
+class _GrowingFile:
+    """A real on-disk file that starts non-empty and can be grown in chunks.
+
+    ``path`` is the file; ``grow(n)`` appends ``n`` more chunks (simulating an
+    encoder still flushing bytes); ``size`` reports the current byte count. The
+    settle gate polls ``os.stat(path).st_size`` — a file left alone reports a
+    stable size across the quiet window and is admitted; one that keeps growing
+    never stabilises.
+    """
+
+    def __init__(self, path: Path, chunk: bytes) -> None:
+        self.path = path
+        self._chunk = chunk
+
+    def grow(self, n: int = 1) -> None:
+        with open(self.path, "ab") as fh:
+            for _ in range(n):
+                fh.write(self._chunk)
+
+    @property
+    def size(self) -> int:
+        return self.path.stat().st_size
+
+
+@pytest.fixture
+def growing_file(tmp_path: Path):
+    """Factory for a :class:`_GrowingFile` simulating a mid-encode write.
+
+    ``make(name="clip.mp4", initial_chunks=1, chunk=...)`` writes ``initial_chunks``
+    chunks (so the file is >0 bytes immediately) and returns the handle. Left
+    alone the file's size is stable → the settle gate admits it; call ``.grow()``
+    to keep it changing so the gate withholds it.
+    """
+
+    def make(
+        name: str = "clip.mp4",
+        initial_chunks: int = 1,
+        chunk: bytes = b"\0" * 1024,
+    ) -> _GrowingFile:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as fh:
+            for _ in range(initial_chunks):
+                fh.write(chunk)
+        return _GrowingFile(path, chunk)
+
+    return make
+
+
 def _write_dense(outputs: Path) -> None:
     """Populate every (prompt, step) coordinate under ``outputs`` with a valid PNG."""
     for pi, prompt in enumerate(PROMPTS):
