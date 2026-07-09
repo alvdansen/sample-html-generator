@@ -55,15 +55,113 @@ def natural_key(value):
     return (1, key)
 
 
-def _ar_of(path: Path) -> "tuple[int, int] | None":
-    """Reduced (w, h) aspect ratio of an image, or None if it can't be read."""
+def _image_dims(path: Path) -> "tuple[int, int] | None":
+    """(w, h) of a still image via Pillow, or None if it isn't a readable image."""
     try:
         with Image.open(path) as im:
-            w, h = im.size
-        g = gcd(w, h) or 1
-        return (w // g, h // g)
+            return im.size
     except Exception:
         return None
+
+
+def _read_head_tail(path: Path, n: int = 4_000_000) -> bytes:
+    """First + last ``n`` bytes of a file — the mp4 ``moov`` / WebM ``Tracks`` box
+    lives near one end (front for faststart, back otherwise), so this bounds the
+    read for large videos instead of loading the whole file."""
+    size = path.stat().st_size
+    with path.open("rb") as f:
+        head = f.read(n)
+        if size <= n:
+            return head
+        f.seek(size - n)
+        return head + f.read(n)
+
+
+_MP4_EXTS = {".mp4", ".m4v", ".mov"}
+_WEBM_EXTS = {".webm", ".mkv"}
+
+
+def _mp4_dims(buf: bytes) -> "tuple[int, int] | None":
+    """Display (w, h) from an mp4/mov ``tkhd`` box (16.16 fixed) — stdlib, no ffmpeg.
+
+    A file carries one ``tkhd`` per track; audio tracks store 0x0, so the first
+    ``tkhd`` with non-zero, in-range display dimensions is the video track.
+    """
+    off = 0
+    while True:
+        i = buf.find(b"tkhd", off)
+        if i < 0:
+            return None
+        s = i + 4
+        ver = buf[s] if s < len(buf) else 0
+        blen = 92 if ver == 1 else 84
+        body = buf[s : s + blen]
+        if len(body) >= 84:
+            w = int.from_bytes(body[-8:-4], "big") >> 16
+            h = int.from_bytes(body[-4:], "big") >> 16
+            if 0 < w <= 16384 and 0 < h <= 16384:
+                return (w, h)
+        off = i + 4
+
+
+def _webm_dims(buf: bytes) -> "tuple[int, int] | None":
+    """PixelWidth (0xB0) / PixelHeight (0xBA) from a WebM/Matroska header — no ffmpeg.
+
+    Best-effort: those ID bytes can also occur inside arbitrary payload, so each
+    candidate is validated as a short EBML element (1-byte data-size vint, value in
+    1..16384). If either dimension can't be read plausibly, returns None (the caller
+    falls back to the square default rather than trusting a garbage match).
+    """
+
+    def _val(tag: bytes) -> "int | None":
+        off = 0
+        while True:
+            i = buf.find(tag, off)
+            if i < 0:
+                return None
+            s = buf[i + 1] if i + 1 < len(buf) else 0
+            if s & 0x80:  # single-byte data-size vint
+                ln = s & 0x7F
+                if 1 <= ln <= 2 and i + 2 + ln <= len(buf):
+                    v = int.from_bytes(buf[i + 2 : i + 2 + ln], "big")
+                    if 0 < v <= 16384:
+                        return v
+            off = i + 1
+
+    w = _val(b"\xb0")
+    h = _val(b"\xba")
+    return (w, h) if w and h else None
+
+
+def _video_dims(path: Path) -> "tuple[int, int] | None":
+    """(w, h) of a video from its container header (mp4/mov ``tkhd`` or WebM pixel
+    elements), or None if the format is unsupported / dimensions unreadable."""
+    ext = path.suffix.lower()
+    if ext not in _MP4_EXTS and ext not in _WEBM_EXTS:
+        return None
+    try:
+        buf = _read_head_tail(path)
+    except Exception:
+        return None
+    return _mp4_dims(buf) if ext in _MP4_EXTS else _webm_dims(buf)
+
+
+def _ar_of(path: Path) -> "tuple[int, int] | None":
+    """Reduced (w, h) aspect ratio of an image OR video, or None if unreadable.
+
+    Images are measured with Pillow; videos have their display dimensions parsed
+    from the container header with stdlib only (no ffmpeg). This lets D-11
+    universal-AR detection cover all-video grids, which previously fell back to a
+    square (1, 1) and cropped widescreen clips.
+    """
+    dims = _image_dims(path) or _video_dims(path)
+    if dims is None:
+        return None
+    w, h = dims
+    if w <= 0 or h <= 0:
+        return None
+    g = gcd(w, h) or 1
+    return (w // g, h // g)
 
 
 def detect_universal_ar(index: SampleIndex) -> "tuple[int, int]":
@@ -156,8 +254,9 @@ def build_grid(index: SampleIndex, config: GridConfig) -> GridModel:
             else:
                 # Populated; flag a stray aspect ratio for letterbox fallback (D-11)
                 # and surface any duplicate-seed alternates on this cell (D-10/D-09).
-                # Video AR can't be read without ffprobe (ffmpeg is out of scope this
-                # phase) — object-fit: cover handles video framing, so no mismatch.
+                # Video now contributes to the detected universal AR (dimensions come
+                # from the container header, no ffmpeg), but per-cell video mismatch
+                # stays off — object-fit: cover frames each clip to the cell.
                 seed = sample.dims.get("seed")
                 if seed is not None:
                     cross_cell_seeds.add(seed)

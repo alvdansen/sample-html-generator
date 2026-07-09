@@ -131,6 +131,45 @@ def test_universal_ar_and_mismatch(
     assert grid.col_values[ci] == hole_coord["prompt"]
 
 
+def _mp4(path: Path, w: int, h: int) -> Path:
+    """Write a minimal file carrying a version-0 ``tkhd`` box with display (w, h).
+
+    Enough for the stdlib ``tkhd`` parser to read the aspect ratio — no ffmpeg and
+    no real encoder needed to exercise video-AR detection.
+    """
+    import struct
+
+    body = bytearray(84)  # version-0 tkhd body; display dims are the last 8 bytes
+    struct.pack_into(">I", body, 76, w << 16)  # width  as 16.16 fixed point
+    struct.pack_into(">I", body, 80, h << 16)  # height as 16.16 fixed point
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\x00" * 8 + b"tkhd" + bytes(body))
+    return path
+
+
+def test_universal_ar_detects_video(tmp_path: Path) -> None:
+    """D-11 regression (video-first): an all-video grid detects the clips' real AR
+    from the container header (stdlib, no ffmpeg) instead of the square (1, 1)
+    fallback that cropped widescreen video. See ``_ar_of`` / ``_video_dims``."""
+    from sample_grid.core.grid import _ar_of, _video_dims
+
+    clip = _mp4(tmp_path / "p" / "step_100.mp4", 320, 180)
+    assert _video_dims(clip) == (320, 180)
+    assert _ar_of(clip) == (16, 9)  # was None before the fix → forced (1, 1)
+
+    index = [
+        Sample(
+            id=f"p/step_{s}.mp4",
+            path=_mp4(tmp_path / "p" / f"step_{s}.mp4", 320, 180),
+            media_type="video",
+            dims={"step": s, "prompt": "p"},
+        )
+        for s in (100, 200)
+    ]
+    assert detect_universal_ar(index) == (16, 9)  # not (1, 1)
+    assert build_grid(index, GridConfig()).cell_ar == (16, 9)
+
+
 def _png(tmp_path: Path, name: str) -> Path:
     """Write a tiny valid 32x18 PNG at ``tmp_path/name`` and return its path."""
     from PIL import Image
