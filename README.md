@@ -8,6 +8,10 @@ grid — by default **training-steps × prompts** — so you can watch a single 
 checkpoint evolve over a run. Cells render **video (`.mp4`/`.webm`) or images**,
 live during training and frozen for sharing.
 
+![finetune-gridwatch — a steps × prompts grid of anime LoRA training samples](docs/demo.png)
+
+*A frozen `steps × prompts` grid — each row a training step, each column a shot framing. [View it live on Hugging Face →](https://huggingface.co/spaces/alvdansen/finetune-gridwatch)*
+
 ## Installation
 
 **uv (recommended):**
