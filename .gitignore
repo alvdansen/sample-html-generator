@@ -20,3 +20,6 @@ grid-output/
 .DS_Store
 Thumbs.db
 design-variants/
+
+# Internal GSD planning — kept local, never published to the public repo
+.planning/
