@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "sample-html-generator"
+name = "finetune-gridwatch"
 version = "0.1.0"
 description = "Video-first model-comparison grid builder — renders a Steps x Prompts grid of generative-model samples to a self-contained HTML page."
 readme = "README.md"

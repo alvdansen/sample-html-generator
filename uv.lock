@@ -71,6 +71,40 @@ wheels = [
 ]
 
 [[package]]
+name = "finetune-gridwatch"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "fastapi" },
+    { name = "jinja2" },
+    { name = "pillow" },
+    { name = "sse-starlette" },
+    { name = "typer" },
+    { name = "uvicorn" },
+    { name = "watchfiles" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "httpx2" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.135" },
+    { name = "httpx2", marker = "extra == 'dev'" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "pillow", specifier = ">=11" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
+    { name = "sse-starlette", specifier = ">=3.0" },
+    { name = "typer", specifier = ">=0.15" },
+    { name = "uvicorn", specifier = ">=0.41" },
+    { name = "watchfiles", specifier = ">=1.2" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -492,40 +526,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/c0/8f/0722ca900cc807c13
 wheels = [
     { url = "https://files.pythonhosted.org/packages/82/3b/64d4899d73f91ba49a8c18a8ff3f0ea8f1c1d75481760df8c68ef5235bf5/rich-15.0.0-py3-none-any.whl", hash = "sha256:33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb", size = 310654, upload-time = "2026-04-12T08:24:02.83Z" },
 ]
-
-[[package]]
-name = "sample-html-generator"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "fastapi" },
-    { name = "jinja2" },
-    { name = "pillow" },
-    { name = "sse-starlette" },
-    { name = "typer" },
-    { name = "uvicorn" },
-    { name = "watchfiles" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "httpx2" },
-    { name = "pytest" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.135" },
-    { name = "httpx2", marker = "extra == 'dev'" },
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "pillow", specifier = ">=11" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "sse-starlette", specifier = ">=3.0" },
-    { name = "typer", specifier = ">=0.15" },
-    { name = "uvicorn", specifier = ">=0.41" },
-    { name = "watchfiles", specifier = ">=1.2" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "shellingham"
