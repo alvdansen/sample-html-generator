@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import csv
 import html
 import shutil
 import socket
@@ -391,6 +392,199 @@ def detect(
 
     # Exit BEFORE any render / asset copy (mirror build's empty-state early exit).
     raise typer.Exit(0)
+
+
+@app.command(
+    # Beta marker lives in the SHORT help so it shows in `grid --help`'s command
+    # list, not only the long docstring. ASCII-only (no arrows/em-dashes) so the
+    # one-liner renders on a legacy cp1252 Windows console; the ``\[`` escapes the
+    # bracket for Typer's rich_markup_mode (same convention as ``\[drift]`` below).
+    short_help=r"\[beta] Composition-plasticity metric over seed-locked ladders.",
+)
+def drift(
+    ladders: "list[Path]" = typer.Argument(
+        ...,
+        help="One or more ladder folders of seed-locked checkpoint clips.",
+    ),
+    output: Path = typer.Option(
+        Path("."),
+        "-o",
+        "--output",
+        help="Output directory; writes <output>/drift.csv and <output>/drift.html.",
+    ),
+    chain: bool = typer.Option(
+        False,
+        "--chain",
+        help=(
+            "Treat ALL ladder folders as ONE chained ladder in argument order "
+            "(effective step = local step + cumulative max of prior rounds)."
+        ),
+    ),
+    label: str = typer.Option(
+        None,
+        "--label",
+        help=(
+            "Ladder label override — applies to a single-folder run or a --chain "
+            "run (defaults: the folder name / 'chain')."
+        ),
+    ),
+    motion_cap: float = typer.Option(
+        0.30,
+        "--motion-cap",
+        help=(
+            "Auto-exclude cells whose MEDIAN motion_baseline exceeds this — "
+            "their intrinsic motion drowns the drift signal (validated default)."
+        ),
+    ),
+    floor_mult: float = typer.Option(
+        1.5,
+        "--floor-mult",
+        help="Motion floor = per-cell median motion_baseline x this multiplier.",
+    ),
+    no_open: bool = typer.Option(
+        False, "--no-open", help="Do not open the report in a browser (CI/scripts)."
+    ),
+) -> None:
+    r"""\[beta] Composition-drift ("plasticity") metric over seed-locked LADDERS.
+
+    Beta: validated on one training program so far (mima2 T1 chain + prime
+    ladders, 2026-07-12). Interpretation rules and guardrail defaults may evolve
+    as it is tried on more trainings.
+
+    Measures how much each cell's COMPOSITION keeps shifting between successive
+    checkpoints (drift = 1 - Pearson r of 32x18 grayscale composition
+    signatures) against a per-clip ``motion_baseline`` (the same statistic
+    within one clip — what mere motion produces). Drift holding above the
+    motion floor = composition headroom; >=3 consecutive checkpoints below it
+    (a "knee") = composition lock — paired with identity lock, that is the
+    overfit signature. Plasticity, NOT fit.
+
+    Naming auto-detect per ladder folder: ``step_NNNNNN_K.mp4`` (cell = sample
+    index K, labeled from a gridwatch ``metadata.csv`` sidecar when present),
+    ``step-XXXX__<prompt>_seedNN.mp4`` (cell = prompt), else the repo's shared
+    auto-detect pipeline (video samples only). Writes ``<output>/drift.csv`` +
+    ``<output>/drift.html``. Needs the optional ``\[drift]`` extra
+    (``uv pip install -e ".\[drift]"``).
+    """
+    # Guardrail metric deps live behind the optional [drift] extra; import the
+    # drift package lazily (mirrors watch's local uvicorn import) and fail with
+    # the install hint, not a traceback.
+    from sample_grid.drift import analyze as drift_analyze
+    from sample_grid.drift import collect as drift_collect
+    from sample_grid.drift import metric as drift_metric
+    from sample_grid.drift.report import render_report
+
+    try:
+        drift_metric._lazy_import()
+    except drift_metric.DriftDependencyError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1)
+
+    for folder in ladders:
+        if not folder.is_dir():
+            typer.echo(f"Not a directory: {folder}", err=True)
+            raise typer.Exit(1)
+
+    # Collect: each folder is its own ladder (label = folder name), or ONE
+    # chained ladder in argument order under --chain (the prime r1→r1d case).
+    collected: "list[tuple[str, str, dict]]" = []  # (label, scheme, clips)
+    if chain:
+        ladder_label = label or "chain"
+        typer.echo(f"Collecting chained ladder '{ladder_label}' ...")
+        scheme, clips = drift_collect.collect_chain(ladders, echo=typer.echo)
+        collected.append((ladder_label, scheme, clips))
+    else:
+        seen: dict[str, int] = {}
+        for folder in ladders:
+            name = label if (label and len(ladders) == 1) else folder.name
+            seen[name] = seen.get(name, 0) + 1
+            if seen[name] > 1:  # keep labels unique when basenames collide
+                name = f"{name}-{seen[name]}"
+            scheme, clips = drift_collect.collect_ladder(folder)
+            collected.append((name, scheme, clips))
+
+    all_rows: list = []
+    analyses: list = []
+    scheme_by_ladder: dict = {}
+    for ladder_label, scheme, clips in collected:
+        if not clips:
+            typer.echo(
+                f"WARN ladder '{ladder_label}': no clips matched any naming "
+                "scheme — skipped.",
+                err=True,
+            )
+            continue
+        cells = sorted({c for c, _ in clips})
+        typer.echo(
+            f"Processing {ladder_label} [{scheme}]: {len(clips)} clips, "
+            f"{len(cells)} cells: {cells}"
+        )
+        rows = drift_metric.process_ladder(ladder_label, clips)
+        all_rows.extend(rows)
+        analysis = drift_analyze.analyze_ladder(
+            ladder_label, rows, motion_cap=motion_cap, floor_mult=floor_mult
+        )
+        analyses.append(analysis)
+        scheme_by_ladder[ladder_label] = scheme
+
+        # Guardrail 1 — high-motion cells are excluded from floor/knee analysis
+        # (they stay in the CSV), loudly.
+        for cell in analysis.excluded_cells:
+            typer.echo(
+                f"  WARN cell '{cell.cell}': median motion_baseline "
+                f"{cell.motion_median:.3f} > --motion-cap {motion_cap:.2f} — "
+                "excluded from floor/knee analysis (intrinsic motion drowns "
+                "the drift signal).",
+                err=True,
+            )
+        # Guardrail 2 — knees, reported with step ranges.
+        for cell in analysis.cells:
+            for start, end in cell.knees:
+                typer.echo(
+                    f"  KNEE {ladder_label}/{cell.cell}: steps {start}-{end} — "
+                    f">={drift_analyze.KNEE_MIN_RUN} consecutive checkpoints "
+                    f"below the motion floor ({cell.floor:.4f}) — composition "
+                    "lock."
+                )
+
+    if not all_rows:
+        typer.echo(
+            "No ladder clips found. Point drift at folders of seed-locked "
+            "checkpoint clips (step_NNNNNN_K.mp4, step-XXXX__<prompt>_seedNN.mp4, "
+            "or the grid folder convention).",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    # Guardrail 3 — drift levels are only comparable within one ladder.
+    typer.echo(
+        "Note: drift levels are only comparable WITHIN a ladder — checkpoint "
+        "spacing scales per-step drift (a 400-step ladder and a 1000-step "
+        "ladder are not comparable on absolute drift).",
+        err=True,
+    )
+
+    output.mkdir(parents=True, exist_ok=True)
+    csv_path = output / "drift.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["ladder", "cell", "step", "drift_vs_prev", "motion_baseline"])
+        for r in all_rows:
+            writer.writerow([
+                r["ladder"], r["cell"], r["step"],
+                "" if r["drift_vs_prev"] is None else f"{r['drift_vs_prev']:.6f}",
+                "" if r["motion_baseline"] is None else f"{r['motion_baseline']:.6f}",
+            ])
+
+    html_path = output / "drift.html"
+    html_path.write_text(
+        render_report(analyses, scheme_by_ladder), encoding="utf-8"
+    )
+
+    typer.echo(f"Wrote {csv_path} ({len(all_rows)} rows)")
+    typer.echo(f"Wrote {html_path}")
+    if not no_open:
+        webbrowser.open(html_path.resolve().as_uri())
 
 
 def _free_port(start: int, host: str = "127.0.0.1", tries: int = 100) -> int:

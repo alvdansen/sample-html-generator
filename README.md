@@ -140,6 +140,54 @@ or tiny grids only) and `--max-inline-mb` (the total-size ceiling above which
 bundle regardless; base64 video is unreliable, so the default is always the
 relative-asset folder bundle.
 
+### `grid drift` (beta) — composition-plasticity metric
+
+> **Beta** — validated on one training program so far (mima2 T1 chain + prime
+> ladders, 2026-07-12); interpretation rules and guardrail defaults may evolve as
+> it is tried on more trainings.
+
+```bash
+uv run grid drift ./ladder_a ./ladder_b -o ./drift-report
+uv run grid drift ./round1 ./round2 ./round3 --chain --label myrun -o ./drift-report
+```
+
+Measures **composition plasticity, NOT fit**, over seed-locked training ladders
+(the same prompt+seed rendered at successive checkpoints). Per checkpoint pair it
+computes `drift = 1 − Pearson r` of coarse 32×18 grayscale composition
+signatures (letterboxes cropped, ~9 frames sampled per clip), alongside a
+per-clip `motion_baseline` — the same statistic *within* one clip, i.e. how much
+"drift" mere motion produces. Writes `<output>/drift.csv` (ladder, cell, step,
+drift_vs_prev, motion_baseline) and a dark-theme `<output>/drift.html` with
+per-ladder curves, the dashed motion floor, and highlighted knees.
+
+**Interpretation rule:** a healthily-learning model keeps *shifting* composition
+between checkpoints — drift holding above the motion floor = headroom. Identity
+lock **with** composition lock is the overfit signature: 3+ consecutive
+checkpoints below the floor (a "knee") means the model is snapping to memorized
+framings.
+
+**Guardrails (on by default):**
+
+- Cells whose **median motion_baseline exceeds `--motion-cap`** (default 0.30)
+  are excluded from floor/knee analysis with a printed warning — their intrinsic
+  motion drowns the drift signal (they stay in the CSV).
+- **Knee detection** requires ≥3 *consecutive* checkpoints below the motion
+  floor (per-cell median motion × `--floor-mult`, default 1.5), reported as step
+  ranges.
+- Drift levels are **only comparable within a ladder** — checkpoint spacing
+  scales per-step drift, so never compare absolute drift across ladders with
+  different spacings.
+
+Naming is auto-detected per folder: `step_NNNNNN_K.mp4` (cell = sample index,
+labeled from a `metadata.csv` sidecar when present), `step-XXXX__<prompt>_seedNN.mp4`
+(cell = prompt), or the shared folder-convention auto-detect. `--chain` treats
+the given folders as one chained run (each round's local steps are offset by the
+cumulative max of prior rounds).
+
+Requires the optional metric extra: `uv pip install -e ".[drift]"`
+(numpy + opencv-python-headless). Metric validated 2026-07-12 on the mima2 T1
+chain + prime ladders.
+
 ## License
 
 MIT — © Promptcrafted LLC. See [LICENSE](LICENSE).

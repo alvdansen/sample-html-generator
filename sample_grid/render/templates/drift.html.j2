@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grid drift — composition-plasticity report</title>
+<style>
+  /* Dark mode is selected, not flipped — tokens from the validated palette. */
+  :root {
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --ink-muted: #898781;
+    --grid-hairline: #2c2c2a;
+    --baseline: #383835;
+    --series-drift: #3987e5;   /* categorical slot 1 (dark step) */
+    --series-motion: #898781;  /* de-emphasis reference, not a series hue */
+    --floor: #c3c2b7;
+    --knee: #fab219;           /* status: warning */
+    --excluded: #e66767;       /* status accent for the badge only */
+    --border: rgba(255,255,255,0.10);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 48px; background: var(--page); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px; line-height: 1.45;
+  }
+  h1 { font-size: 17px; font-weight: 650; margin: 0 0 4px; }
+  h2 { font-size: 14px; font-weight: 600; margin: 0; color: var(--ink); }
+  .sub { color: var(--ink-muted); font-size: 12px; margin: 0 0 18px; }
+  .banner {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; color: var(--ink-2); font-size: 12px; max-width: 860px;
+    margin-bottom: 24px;
+  }
+  .banner strong { color: var(--ink); }
+  section.ladder {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 20px 20px; margin-bottom: 22px;
+  }
+  .ladder-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .scheme { color: var(--ink-muted); font-size: 11px; border: 1px solid var(--border);
+            border-radius: 99px; padding: 1px 8px; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin: 8px 0 14px; color: var(--ink-2); font-size: 11.5px; }
+  .legend .key { display: inline-flex; align-items: center; gap: 6px; }
+  .key svg { display: block; }
+  .charts { display: flex; flex-wrap: wrap; gap: 16px; }
+  figure.cell { margin: 0; width: 380px; max-width: 100%; }
+  figure.cell.excluded { opacity: 0.45; }
+  figcaption { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  figcaption .name { font-weight: 600; font-size: 12.5px; color: var(--ink); }
+  .badge { font-size: 10.5px; border-radius: 99px; padding: 1px 7px; }
+  .badge.excluded { color: var(--excluded); border: 1px solid var(--excluded); }
+  .badge.knee { color: var(--knee); border: 1px solid var(--knee); }
+  svg.chart { width: 100%; height: auto; display: block; }
+  svg .tick-label { fill: var(--ink-muted); font-size: 9.5px; font-family: system-ui, sans-serif;
+                    font-variant-numeric: tabular-nums; }
+  svg .knee-label { fill: var(--knee); font-size: 9px; font-family: system-ui, sans-serif; }
+  table.summary { border-collapse: collapse; margin-top: 16px; font-size: 12px; width: 100%; max-width: 860px; }
+  table.summary th { text-align: left; color: var(--ink-muted); font-weight: 500;
+                     border-bottom: 1px solid var(--baseline); padding: 4px 14px 4px 0; }
+  table.summary td { border-bottom: 1px solid var(--grid-hairline); padding: 5px 14px 5px 0;
+                     color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  table.summary td.cell-name { color: var(--ink); }
+  .warn-text { color: var(--knee); }
+  .excl-text { color: var(--excluded); }
+  footer { color: var(--ink-muted); font-size: 11px; margin-top: 8px; max-width: 860px; }
+</style>
+</head>
+<body>
+<h1>grid drift — composition-plasticity report</h1>
+<p class="sub">Generated {{ generated }} · drift = 1 − Pearson r of 32×18 composition signatures vs the previous checkpoint (seed-locked)</p>
+
+<div class="banner">
+  <strong>Read within a ladder only.</strong> Drift is measured per checkpoint
+  <em>pair</em>, so its level scales with checkpoint spacing — a ladder sampled
+  every 400 steps and one sampled every 1,000 are not comparable on absolute
+  drift. Interpretation rule: drift holding above the motion floor = composition
+  headroom; {{ knee_min_run }}+ consecutive checkpoints below the floor
+  (highlighted) = composition lock. Identity-lock <em>with</em> composition-lock
+  is the overfit signature — this metric measures plasticity, not fit.
+</div>
+
+{% for ladder in ladders %}
+<section class="ladder">
+  <div class="ladder-head">
+    <h2>{{ ladder.label }}</h2>
+    <span class="scheme">{{ ladder.scheme }}</span>
+    <span class="sub" style="margin:0">motion cap {{ "%.2f"|format(ladder.motion_cap) }} · floor = median motion × {{ "%.2g"|format(ladder.floor_mult) }}{% if ladder.n_excluded %} · <span class="excl-text">{{ ladder.n_excluded }} cell(s) excluded</span>{% endif %}</span>
+  </div>
+  <div class="legend">
+    <span class="key"><svg width="20" height="8"><line x1="1" y1="4" x2="19" y2="4" stroke="var(--series-drift)" stroke-width="2" stroke-linecap="round"/></svg>drift vs prev checkpoint</span>
+    <span class="key"><svg width="20" height="8"><line x1="1" y1="4" x2="19" y2="4" stroke="var(--series-motion)" stroke-width="1.5" stroke-linecap="round"/></svg>motion baseline (within-clip)</span>
+    <span class="key"><svg width="20" height="8"><line x1="1" y1="4" x2="19" y2="4" stroke="var(--floor)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>motion floor</span>
+    <span class="key"><svg width="20" height="10"><rect x="1" y="1" width="18" height="8" fill="var(--knee)" fill-opacity="0.16" stroke="var(--knee)" stroke-opacity="0.5" stroke-width="1"/></svg>knee ({{ knee_min_run }}+ consecutive below floor)</span>
+  </div>
+  <div class="charts">
+  {% for cell in ladder.cells %}
+    <figure class="cell{% if cell.excluded %} excluded{% endif %}">
+      <figcaption>
+        <span class="name">{{ cell.name }}</span>
+        {% if cell.excluded %}<span class="badge excluded">excluded · median motion {{ "%.2f"|format(cell.motion_median) }} &gt; cap</span>{% endif %}
+        {% for knee in cell.knees %}<span class="badge knee">knee {{ knee.start }}–{{ knee.end }}</span>{% endfor %}
+      </figcaption>
+      {% set c = cell.chart %}
+      <svg class="chart" viewBox="0 0 {{ c.w }} {{ c.h }}" role="img" aria-label="drift curve for cell {{ cell.name }}">
+        <rect x="0" y="0" width="{{ c.w }}" height="{{ c.h }}" fill="var(--surface)"/>
+        {# recessive hairline gridlines + y tick labels #}
+        {% for t in c.yticks %}
+        <line x1="{{ c.plot_x }}" y1="{{ t.y }}" x2="{{ c.plot_x + c.plot_w }}" y2="{{ t.y }}" stroke="var(--grid-hairline)" stroke-width="1"/>
+        <text class="tick-label" x="{{ c.plot_x - 6 }}" y="{{ t.y + 3 }}" text-anchor="end">{{ t.label }}</text>
+        {% endfor %}
+        {# knee ranges — shaded BEFORE the data marks #}
+        {% for k in c.knee_rects %}
+        <rect x="{{ k.x }}" y="{{ c.plot_y }}" width="{{ k.w }}" height="{{ c.plot_h }}" fill="var(--knee)" fill-opacity="0.14"/>
+        <text class="knee-label" x="{{ k.x + 3 }}" y="{{ c.plot_y + 9 }}">knee</text>
+        {% endfor %}
+        {# per-cell motion floor — dashed reference #}
+        <line x1="{{ c.plot_x }}" y1="{{ c.floor_y }}" x2="{{ c.plot_x + c.plot_w }}" y2="{{ c.floor_y }}" stroke="var(--floor)" stroke-width="1.5" stroke-dasharray="4 3"/>
+        {# motion baseline — de-emphasis reference line #}
+        {% if c.motion_points %}<polyline points="{{ c.motion_points }}" fill="none" stroke="var(--series-motion)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>{% endif %}
+        {# drift — THE series: 2px, round join/cap #}
+        {% if c.drift_points %}<polyline points="{{ c.drift_points }}" fill="none" stroke="var(--series-drift)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>{% endif %}
+        {# markers with a 2px surface ring; oversized invisible hit circle carries the native tooltip #}
+        {% for m in c.markers %}
+        <circle cx="{{ m.cx }}" cy="{{ m.cy }}" r="3.5" fill="var(--series-drift)" stroke="var(--surface)" stroke-width="2"/>
+        <circle cx="{{ m.cx }}" cy="{{ m.cy }}" r="9" fill="transparent"><title>{{ m.title }}</title></circle>
+        {% endfor %}
+        {# baseline axis + x ticks #}
+        <line x1="{{ c.plot_x }}" y1="{{ c.plot_y + c.plot_h }}" x2="{{ c.plot_x + c.plot_w }}" y2="{{ c.plot_y + c.plot_h }}" stroke="var(--baseline)" stroke-width="1"/>
+        {% for t in c.xticks %}
+        <text class="tick-label" x="{{ t.x }}" y="{{ c.plot_y + c.plot_h + 14 }}" text-anchor="middle">{{ t.label }}</text>
+        {% endfor %}
+      </svg>
+    </figure>
+  {% endfor %}
+  </div>
+  <table class="summary">
+    <thead><tr><th>cell</th><th>checkpoints</th><th>median motion</th><th>floor</th><th>knees</th><th>status</th></tr></thead>
+    <tbody>
+    {% for cell in ladder.cells %}
+      <tr>
+        <td class="cell-name">{{ cell.name }}</td>
+        <td>{{ cell.n_checkpoints }}</td>
+        <td>{{ "%.4f"|format(cell.motion_median) }}</td>
+        <td>{{ "%.4f"|format(cell.floor) }}</td>
+        <td>{% if cell.knees %}<span class="warn-text">{% for knee in cell.knees %}{{ knee.start }}–{{ knee.end }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% else %}—{% endif %}</td>
+        <td>{% if cell.excluded %}<span class="excl-text">excluded (high motion)</span>{% elif cell.knees %}<span class="warn-text">composition lock</span>{% else %}headroom{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endfor %}
+
+<footer>
+  Full per-checkpoint values are in <code>drift.csv</code> next to this file
+  (ladder, cell, step, drift_vs_prev, motion_baseline). Metric validated
+  2026-07-12 on the mima2 T1 chain + prime ladders.
+</footer>
+</body>
+</html>
