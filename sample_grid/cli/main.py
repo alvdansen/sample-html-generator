@@ -12,6 +12,7 @@ import csv
 import html
 import shutil
 import socket
+import sys
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -40,6 +41,20 @@ from sample_grid.render.resolver import (
     RelativeResolver,
     ServedResolver,
 )
+
+# Legacy Windows consoles default to a non-UTF-8 code page (e.g. cp1252) whose
+# charmap cannot encode characters such as U+2192 (->). Rich writes help/output
+# straight to the console, so a stray non-ASCII glyph would raise
+# UnicodeEncodeError before anything renders. Reconfigure the standard streams to
+# UTF-8 up front (module import runs before Typer parses args / Rich renders).
+# Guarded: a no-op on streams without ``reconfigure`` (captured pipes, older
+# wrappers). Worst case on a truly legacy console is mojibake, never a crash.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except Exception:  # pragma: no cover - defensive; never fail on import
+            pass
 
 app = typer.Typer(
     add_completion=False,
@@ -135,10 +150,10 @@ def build(
         help="Override auto-detect: {prompt}/step_{step}_seed{seed}.mp4",
     ),
 ) -> None:
-    """Build a static Steps × Prompts grid from FOLDER.
+    """Build a static Steps x Prompts grid from FOLDER.
 
     Sample convention (Phase 1): the immediate parent directory is the prompt and
-    the first integer in the filename is the training step —
+    the first integer in the filename is the training step --
     ``<prompt>/step_<N>.<ext>`` for .png/.jpg/.jpeg/.webp files.
 
     Writes ``<output>/grid-output/index.html`` plus a self-contained
@@ -209,7 +224,7 @@ def freeze(
     inline: bool = typer.Option(
         False,
         "--inline",
-        help="Opt-in single-file base64 export — images / tiny grids only.",
+        help="Opt-in single-file base64 export -- images / tiny grids only.",
     ),
     max_inline_mb: float = typer.Option(
         75.0,
@@ -221,14 +236,14 @@ def freeze(
 
     Freeze is the offline-artifact sibling of ``watch``: it re-parses the same
     folder (one detect path with ``build``/``detect``/``watch``) and emits the
-    ``build`` output layout — ``<output>/grid-output/index.html`` + a relative
-    ``assets/`` bundle — rendered with ``live=False`` via ``RelativeResolver``. The
+    ``build`` output layout -- ``<output>/grid-output/index.html`` + a relative
+    ``assets/`` bundle -- rendered with ``live=False`` via ``RelativeResolver``. The
     result opens straight from ``file://`` with NO server: ``live=False`` strips the
     only server-coupled markup (the ``LIVE_ENDPOINT`` injection), so the frozen page
     is the live grid MINUS exactly the live-reload wiring (EXPORT-02). This is the
     command the ``watch`` handoff prints (``grid freeze <folder>``).
 
-    The whole export reuses the proven render seam — no freeze-specific rendering,
+    The whole export reuses the proven render seam -- no freeze-specific rendering,
     template, or JS. It swaps only the (already relative) resolver.
     """
     out_dir = output / GRID_OUTPUT_DIRNAME
@@ -324,11 +339,11 @@ def detect(
 ) -> None:
     """Preview auto-detection for FOLDER, then exit WITHOUT rendering (META-05 / D-01).
 
-    Runs the exact same pipeline as ``build`` (scan → filename/subfolder extract →
-    precedence merge → build_grid) and prints what it found: the detected axes and
-    their values, populated/missing counts, a few example cell→dims mappings,
+    Runs the exact same pipeline as ``build`` (scan -> filename/subfolder extract ->
+    precedence merge -> build_grid) and prints what it found: the detected axes and
+    their values, populated/missing counts, a few example cell->dims mappings,
     source disagreements (D-04), unclassifiable files (D-05), and TWO distinct
-    seed signals — per-coordinate multi-seed cells and cross-cell seed variance
+    seed signals -- per-coordinate multi-seed cells and cross-cell seed variance
     (D-09). It never writes an ``index.html``.
     """
     index, report = _auto_parse(folder, template=template)
@@ -424,7 +439,7 @@ def drift(
         None,
         "--label",
         help=(
-            "Ladder label override — applies to a single-folder run or a --chain "
+            "Ladder label override -- applies to a single-folder run or a --chain "
             "run (defaults: the folder name / 'chain')."
         ),
     ),
@@ -432,7 +447,7 @@ def drift(
         0.30,
         "--motion-cap",
         help=(
-            "Auto-exclude cells whose MEDIAN motion_baseline exceeds this — "
+            "Auto-exclude cells whose MEDIAN motion_baseline exceeds this -- "
             "their intrinsic motion drowns the drift signal (validated default)."
         ),
     ),
@@ -454,9 +469,9 @@ def drift(
     Measures how much each cell's COMPOSITION keeps shifting between successive
     checkpoints (drift = 1 - Pearson r of 32x18 grayscale composition
     signatures) against a per-clip ``motion_baseline`` (the same statistic
-    within one clip — what mere motion produces). Drift holding above the
+    within one clip -- what mere motion produces). Drift holding above the
     motion floor = composition headroom; >=3 consecutive checkpoints below it
-    (a "knee") = composition lock — paired with identity lock, that is the
+    (a "knee") = composition lock -- paired with identity lock, that is the
     overfit signature. Plasticity, NOT fit.
 
     Naming auto-detect per ladder folder: ``step_NNNNNN_K.mp4`` (cell = sample
@@ -510,7 +525,7 @@ def drift(
         if not clips:
             typer.echo(
                 f"WARN ladder '{ladder_label}': no clips matched any naming "
-                "scheme — skipped.",
+                "scheme -- skipped.",
                 err=True,
             )
             continue
@@ -532,7 +547,7 @@ def drift(
         for cell in analysis.excluded_cells:
             typer.echo(
                 f"  WARN cell '{cell.cell}': median motion_baseline "
-                f"{cell.motion_median:.3f} > --motion-cap {motion_cap:.2f} — "
+                f"{cell.motion_median:.3f} > --motion-cap {motion_cap:.2f} -- "
                 "excluded from floor/knee analysis (intrinsic motion drowns "
                 "the drift signal).",
                 err=True,
@@ -541,9 +556,9 @@ def drift(
         for cell in analysis.cells:
             for start, end in cell.knees:
                 typer.echo(
-                    f"  KNEE {ladder_label}/{cell.cell}: steps {start}-{end} — "
+                    f"  KNEE {ladder_label}/{cell.cell}: steps {start}-{end} -- "
                     f">={drift_analyze.KNEE_MIN_RUN} consecutive checkpoints "
-                    f"below the motion floor ({cell.floor:.4f}) — composition "
+                    f"below the motion floor ({cell.floor:.4f}) -- composition "
                     "lock."
                 )
 
@@ -558,7 +573,7 @@ def drift(
 
     # Guardrail 3 — drift levels are only comparable within one ladder.
     typer.echo(
-        "Note: drift levels are only comparable WITHIN a ladder — checkpoint "
+        "Note: drift levels are only comparable WITHIN a ladder -- checkpoint "
         "spacing scales per-step drift (a 400-step ladder and a 1000-step "
         "ladder are not comparable on absolute drift).",
         err=True,
@@ -706,15 +721,15 @@ def watch(
         help="Render current state, write the artifact, and exit (no serve loop).",
     ),
 ) -> None:
-    """Watch FOLDER and serve a live Steps × Prompts grid on localhost (RUN-02).
+    """Watch FOLDER and serve a live Steps x Prompts grid on localhost (RUN-02).
 
     Renders the folder's current state immediately, writes the same
     ``<output>/grid-output/index.html`` + ``assets/`` layout ``build`` produces
     (D-04/D-05), and auto-opens the browser (suppress with --no-open). It then owns
-    a localhost-only Uvicorn loop: an ``awatch`` task in the app lifespan re-scans →
-    diffs → renders fragment(s) → broadcasts each settled batch over SSE, without a
+    a localhost-only Uvicorn loop: an ``awatch`` task in the app lifespan re-scans ->
+    diffs -> renders fragment(s) -> broadcasts each settled batch over SSE, without a
     page reload. On Ctrl-C the last static artifact is left on disk and the ``freeze``
-    next-step is printed (D-05/D-06 — Phase 4 names ``freeze`` only, no export here).
+    next-step is printed (D-05/D-06 -- Phase 4 names ``freeze`` only, no export here).
     """
     out_dir = output / GRID_OUTPUT_DIRNAME
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -751,7 +766,7 @@ def watch(
         current = build_grid([], GridConfig())
     page_html = _render_page(current)
     index_path.write_text(page_html, encoding="utf-8")
-    typer.echo(f"Watching {folder} — serving {index_path}")
+    typer.echo(f"Watching {folder} -- serving {index_path}")
 
     if once:
         # Hidden non-blocking hook (tests/CI): current state rendered, artifact
